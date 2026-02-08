@@ -1,5 +1,8 @@
 # Modern Maven (modernmvn.com)
 
+[![Backend Build](https://github.com/tekalenandkumar/modernmvn/actions/workflows/backend.yml/badge.svg?branch=master)](https://github.com/tekalenandkumar/modernmvn/actions/workflows/backend.yml)
+[![Frontend Build](https://github.com/tekalenandkumar/modernmvn/actions/workflows/frontend.yml/badge.svg?branch=master)](https://github.com/tekalenandkumar/modernmvn/actions/workflows/frontend.yml)
+
 **Dependency Intelligence for the Modern Java/JVM Developer.**
 
 Modern Maven is a reimagined repository browser and dependency analysis tool designed to replace the aging repository browser experience. It goes beyond simple artifact listings to provide deep insights into your project's dependency graph, resolution conflicts, and security posture.
