@@ -73,6 +73,17 @@ Existing tools (like Maven Central search or other browsers) act as static phone
     npm run dev
     ```
 
+### Deployment (Vercel)
+
+If deploying the frontend to Vercel, ensure you configure the **Root Directory** correctly:
+
+1.  Go to your Vercel Project Settings > General.
+2.  Set **Root Directory** to `frontend`.
+3.  Ensure the **Build Command** is `next build` (default).
+4.  Ensure the **Output Directory** is `.next` (default).
+
+Alternatively, the project includes a `vercel.json` at the root to attempt an override, but setting the Root Directory in the UI is recommended for monorepos.
+
 ## 📄 License
 
 Apache License 2.0 - See [LICENSE](LICENSE) for details.
