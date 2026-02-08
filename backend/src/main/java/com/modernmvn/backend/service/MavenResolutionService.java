@@ -43,12 +43,115 @@ public class MavenResolutionService {
 
             CollectResult collectResult = repositorySystem.collectDependencies(repositorySystemSession, collectRequest);
 
+            if (!collectResult.getExceptions().isEmpty()) {
+                System.out.println("Resolution exceptions for " + groupId + ":" + artifactId + ":" + version);
+                for (Exception e : collectResult.getExceptions()) {
+                    e.printStackTrace();
+                }
+            }
+
             return convertToDto(collectResult.getRoot());
         } catch (Exception e) {
             e.printStackTrace();
             return new DependencyNode(groupId, artifactId, version, "compile", "jar", Collections.emptyList(), "ERROR",
                     e.getMessage());
         }
+    }
+
+    public DependencyNode resolveFromPom(String pomContent) {
+        try {
+            org.apache.maven.model.io.xpp3.MavenXpp3Reader reader = new org.apache.maven.model.io.xpp3.MavenXpp3Reader();
+            org.apache.maven.model.Model model = reader.read(new java.io.StringReader(pomContent));
+
+            String groupId = model.getGroupId() != null ? model.getGroupId()
+                    : (model.getParent() != null ? model.getParent().getGroupId() : "unknown");
+            String artifactId = model.getArtifactId();
+            String version = model.getVersion() != null ? model.getVersion()
+                    : (model.getParent() != null ? model.getParent().getVersion() : "0.0.1-SNAPSHOT");
+
+            // Basic Property Interpolation
+            java.util.Map<String, String> properties = new java.util.HashMap<>();
+            if (model.getProperties() != null) {
+                for (String key : model.getProperties().stringPropertyNames()) {
+                    properties.put(key, model.getProperties().getProperty(key));
+                }
+            }
+            // Add implicit properties
+            properties.put("project.groupId", groupId);
+            properties.put("project.artifactId", artifactId);
+            properties.put("project.version", version);
+            // Add java.version if missing (common in Spring Boot)
+            if (!properties.containsKey("java.version")) {
+                properties.put("java.version", "17");
+            }
+
+            List<Dependency> dependencies = new ArrayList<>();
+            for (org.apache.maven.model.Dependency d : model.getDependencies()) {
+                String dGroupId = interpolate(d.getGroupId(), properties);
+                String dArtifactId = interpolate(d.getArtifactId(), properties);
+                String dVersion = interpolate(d.getVersion(), properties);
+                String dScope = d.getScope() != null ? d.getScope() : "compile";
+
+                if (dVersion == null || dVersion.isEmpty()) {
+                    // Heuristic for Spring Boot managed dependencies
+                    if (model.getParent() != null && dGroupId.startsWith("org.springframework.boot")) {
+                        dVersion = model.getParent().getVersion();
+                    } else {
+                        // Fallback to LATEST for other managed dependencies
+                        dVersion = "LATEST";
+                    }
+                }
+
+                Artifact artifact = new DefaultArtifact(dGroupId, dArtifactId, "jar", dVersion);
+                dependencies.add(new Dependency(artifact, dScope));
+            }
+
+            RemoteRepository central = new RemoteRepository.Builder("central", "default",
+                    "https://repo.maven.apache.org/maven2/").build();
+
+            CollectRequest collectRequest = new CollectRequest();
+            collectRequest.setDependencies(dependencies);
+            collectRequest.setRepositories(Collections.singletonList(central));
+
+            CollectResult collectResult = repositorySystem.collectDependencies(repositorySystemSession, collectRequest);
+
+            // The root of CollectResult when using setDependencies is a synthetic root with
+            // null artifact.
+            // We iterate over its children to convert them.
+            List<DependencyNode> children = new ArrayList<>();
+            for (org.eclipse.aether.graph.DependencyNode child : collectResult.getRoot().getChildren()) {
+                children.add(convertToDto(child));
+            }
+
+            return new DependencyNode(
+                    groupId,
+                    artifactId,
+                    version,
+                    "compile",
+                    "pom",
+                    children,
+                    "RESOLVED",
+                    null);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return new DependencyNode("unknown", "unknown", "0.0.0", "compile", "pom", Collections.emptyList(), "ERROR",
+                    e.getMessage());
+        }
+    }
+
+    private String interpolate(String value, java.util.Map<String, String> properties) {
+        if (value == null)
+            return null;
+        if (!value.contains("${"))
+            return value;
+
+        for (java.util.Map.Entry<String, String> entry : properties.entrySet()) {
+            String placeholder = "${" + entry.getKey() + "}";
+            if (value.contains(placeholder)) {
+                value = value.replace(placeholder, entry.getValue());
+            }
+        }
+        return value;
     }
 
     private DependencyNode convertToDto(org.eclipse.aether.graph.DependencyNode aetherNode) {

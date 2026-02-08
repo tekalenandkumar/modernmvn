@@ -5,7 +5,6 @@ import org.eclipse.aether.DefaultRepositorySystemSession;
 import org.eclipse.aether.RepositorySystem;
 import org.eclipse.aether.RepositorySystemSession;
 import org.eclipse.aether.repository.LocalRepository;
-import org.eclipse.aether.supplier.RepositorySystemSupplier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -14,7 +13,7 @@ public class MavenConfig {
 
     @Bean
     public RepositorySystem repositorySystem() {
-        return new RepositorySystemSupplier().get();
+        return new org.eclipse.aether.supplier.RepositorySystemSupplier().get();
     }
 
     @Bean

@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/maven")
+@org.springframework.web.bind.annotation.CrossOrigin(origins = "http://localhost:3000")
 public class MavenController {
 
     private final MavenResolutionService mavenResolutionService;
@@ -28,8 +29,6 @@ public class MavenController {
 
     @org.springframework.web.bind.annotation.PostMapping("/resolve/pom")
     public DependencyNode resolvePom(@org.springframework.web.bind.annotation.RequestBody String pomContent) {
-        com.modernmvn.backend.dto.MavenCoordinates coordinates = pomParserService.parsePom(pomContent);
-        return mavenResolutionService.resolveDependency(coordinates.groupId(), coordinates.artifactId(),
-                coordinates.version());
+        return mavenResolutionService.resolveFromPom(pomContent);
     }
 }
