@@ -1,0 +1,36 @@
+services:
+  # The Source of Truth: Relational Data & AI Vectors
+  postgres:
+    image: ankane/pgvector:latest # Specialized image for AI/Vector search support
+    container_name: mvn-db
+    ports:
+      - "5440:5432"
+    environment:
+      POSTGRES_DB: mvn_discovery
+      POSTGRES_USER: dev_user
+      POSTGRES_PASSWORD: dev_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # The Speed Layer: Fast Search-as-you-type
+  meilisearch:
+    image: getmeili/meilisearch:v1.6 # Modern, fast, and typo-tolerant
+    container_name: mvn-search
+    ports:
+      - "7700:7700"
+    environment:
+      - MEILI_MASTER_KEY=masterKey123
+      - MEILI_ENV=development
+    volumes:
+      - meilisearch_data:/meili_data
+
+  # The Cache Layer: For rate limiting and trending artifacts
+  redis:
+    image: redis:7-alpine
+    container_name: mvn-cache
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
+  meilisearch_data:
