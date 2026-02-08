@@ -82,7 +82,7 @@ If deploying the frontend to Vercel, ensure you configure the **Root Directory**
 3.  Ensure the **Build Command** is `next build` (default).
 4.  Ensure the **Output Directory** is `.next` (default).
 
-Alternatively, the project includes a `vercel.json` at the root to attempt an override, but setting the Root Directory in the UI is recommended for monorepos.
+If you configure the **Root Directory** as `frontend` in Vercel settings, a `vercel.json` file is typically not required as Next.js defaults will be auto-detected. However, if used, it should be placed inside `frontend/` and use relative paths (e.g., outputDirectory: `.next`).
 
 ## 📄 License
 
