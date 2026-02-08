@@ -96,6 +96,11 @@
 			<artifactId>maven-resolver-transport-file</artifactId>
 			<version>${resolver.version}</version>
 		</dependency>
+		<dependency>
+			<groupId>org.apache.maven.resolver</groupId>
+			<artifactId>maven-resolver-supplier</artifactId>
+			<version>${resolver.version}</version>
+		</dependency>
 	</dependencies>
 
 	<build>
