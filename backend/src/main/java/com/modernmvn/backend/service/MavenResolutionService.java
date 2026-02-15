@@ -174,7 +174,17 @@ public class MavenResolutionService {
 
         if (winner != null) {
             resolutionStatus = "CONFLICT";
-            conflictMessage = "Conflict with version " + winner.getArtifact().getVersion();
+            // Check if the winner is actually a different version (sometimes it marks
+            // itself as winner)
+            if (!winner.getArtifact().getVersion().equals(artifact.getVersion())) {
+                conflictMessage = "Conflict: " + artifact.getVersion() + " omitted for "
+                        + winner.getArtifact().getVersion();
+            } else {
+                // Even if it matches, if it was in conflict graph, it might be interesting.
+                // But usually we only care if it was omitted.
+                // If the node itself is the winner, it's resolved.
+                resolutionStatus = "RESOLVED";
+            }
         } else {
             // Basic scope-based status
             String scope = aetherNode.getDependency() != null ? aetherNode.getDependency().getScope() : "compile";
