@@ -1,16 +1,21 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import GraphViewer from '@/components/GraphViewer';
 import DependencyTable from '@/components/DependencyTable';
+import ConflictSummary from '@/components/ConflictSummary';
 import { fetchDependencyGraph, DependencyNode } from '@/lib/api';
-import { AlertCircle, Search, FileCode, Layers, List } from 'lucide-react';
+import { AlertCircle, Search, FileCode, Layers, List, ClipboardList, Download, Share2 } from 'lucide-react';
 
 import Link from 'next/link';
 
 export default function AnalyzePage() {
+    const searchParams = useSearchParams();
+    const router = useRouter();
+
     const [mode, setMode] = useState<'coordinates' | 'pom'>('coordinates');
-    const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph');
+    const [viewMode, setViewMode] = useState<'graph' | 'list' | 'summary'>('graph'); // Added summary view mode
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [graph, setGraph] = useState<DependencyNode | null>(null);
@@ -21,19 +26,35 @@ export default function AnalyzePage() {
     const [version, setVersion] = useState('');
     const [pomContent, setPomContent] = useState('');
 
-    const handleSearch = async (e: React.FormEvent) => {
-        e.preventDefault();
+    // Sync from URL on load
+    useEffect(() => {
+        const g = searchParams.get('g');
+        const a = searchParams.get('a');
+        const v = searchParams.get('v');
+
+        if (g && a && v) {
+            setGroupId(g);
+            setArtifactId(a);
+            setVersion(v);
+
+            // Only fetch if we have coordinates and no graph is loaded yet (initial load)
+            // We use a flag to prevent double-fetching in React.StrictMode if needed, 
+            // but for now relying on graph state check inside the effect is tricky due to closure staleness.
+            // Instead, we just call doFetch if the params exist.
+            doFetch(g, a, v);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams]);
+
+    const doFetch = async (g?: string, a?: string, v?: string, pom?: string) => {
         setLoading(true);
         setError(null);
-        // Do not clear graph immediately to avoid flicker, or do clear if distinct query.
-        // setGraph(null);
-
         try {
             const data = await fetchDependencyGraph({
-                groupId: mode === 'coordinates' ? groupId : undefined,
-                artifactId: mode === 'coordinates' ? artifactId : undefined,
-                version: mode === 'coordinates' ? version : undefined,
-                pomContent: mode === 'pom' ? pomContent : undefined
+                groupId: g,
+                artifactId: a,
+                version: v,
+                pomContent: pom
             });
             setGraph(data);
         } catch (err: unknown) {
@@ -44,6 +65,48 @@ export default function AnalyzePage() {
             }
         } finally {
             setLoading(false);
+        }
+    }
+
+    const handleSearch = async (e: React.FormEvent) => {
+        e.preventDefault();
+
+        // Update URL if using coordinates
+        if (mode === 'coordinates') {
+            const params = new URLSearchParams();
+            params.set('g', groupId);
+            params.set('a', artifactId);
+            params.set('v', version);
+            router.push(`/analyze?${params.toString()}`);
+        }
+
+        doFetch(
+            mode === 'coordinates' ? groupId : undefined,
+            mode === 'coordinates' ? artifactId : undefined,
+            mode === 'coordinates' ? version : undefined,
+            mode === 'pom' ? pomContent : undefined
+        );
+    };
+
+    const handleExport = () => {
+        if (!graph) return;
+        const jsonString = JSON.stringify(graph, null, 2);
+        const blob = new Blob([jsonString], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `dependency-graph-${groupId}-${artifactId}-${version || 'pom'}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const handleShare = () => {
+        if (mode === 'coordinates') {
+            navigator.clipboard.writeText(window.location.href);
+            alert("Link copied to clipboard!");
+        } else {
+            alert("Sharing is only available for coordinate-based analysis currently.");
         }
     };
 
@@ -153,30 +216,46 @@ export default function AnalyzePage() {
                 )}
 
                 {/* View/Results Area */}
-                {graph && (
+                {graph ? (
                     <div className="flex flex-col gap-4">
-                        <div className="flex gap-4 border-b border-gray-800 pb-2">
-                            <button onClick={() => setViewMode('graph')} className={`flex items-center gap-2 px-4 py-2 text-sm font-medium ${viewMode === 'graph' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>
-                                <Layers size={16} /> Graph View
-                            </button>
-                            <button onClick={() => setViewMode('list')} className={`flex items-center gap-2 px-4 py-2 text-sm font-medium ${viewMode === 'list' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>
-                                <List size={16} /> Table View
-                            </button>
+                        <div className="flex justify-between border-b border-gray-800 pb-2">
+                            <div className="flex gap-4">
+                                <button onClick={() => setViewMode('graph')} className={`flex items-center gap-2 px-4 py-2 text-sm font-medium ${viewMode === 'graph' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>
+                                    <Layers size={16} /> Graph View
+                                </button>
+                                <button onClick={() => setViewMode('list')} className={`flex items-center gap-2 px-4 py-2 text-sm font-medium ${viewMode === 'list' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>
+                                    <List size={16} /> Table View
+                                </button>
+                                <button onClick={() => setViewMode('summary')} className={`flex items-center gap-2 px-4 py-2 text-sm font-medium ${viewMode === 'summary' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-gray-500 hover:text-gray-300'}`}>
+                                    <ClipboardList size={16} /> Conflict Summary
+                                </button>
+                            </div>
+
+                            <div className="flex gap-2">
+                                <button onClick={handleShare} className="flex items-center gap-2 px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs text-gray-300 border border-gray-700 transition">
+                                    <Share2 size={14} /> Share Link
+                                </button>
+                                <button onClick={handleExport} className="flex items-center gap-2 px-3 py-1 bg-gray-800 hover:bg-gray-700 rounded text-xs text-gray-300 border border-gray-700 transition">
+                                    <Download size={14} /> Export JSON
+                                </button>
+                            </div>
                         </div>
 
                         <div className="flex-1 min-h-[600px]">
-                            {viewMode === 'graph' ? <GraphViewer rootNode={graph} /> : <DependencyTable rootNode={graph} />}
+                            {viewMode === 'graph' && <GraphViewer rootNode={graph} />}
+                            {viewMode === 'list' && <DependencyTable rootNode={graph} />}
+                            {viewMode === 'summary' && <ConflictSummary rootNode={graph} />}
                         </div>
                     </div>
-                )}
-
-                {!graph && !loading && !error && (
-                    <div className="h-full border border-dashed border-gray-800 rounded-xl flex items-center justify-center text-gray-600 flex-col gap-4 p-12 min-h-[400px]">
-                        <div className="w-16 h-16 rounded-full bg-gray-900 flex items-center justify-center">
-                            <Layers className="text-gray-700" size={32} />
+                ) : (
+                    !loading && (
+                        <div className="h-full border border-dashed border-gray-800 rounded-xl flex items-center justify-center text-gray-600 flex-col gap-4 p-12 min-h-[400px]">
+                            <div className="w-16 h-16 rounded-full bg-gray-900 flex items-center justify-center">
+                                <Layers className="text-gray-700" size={32} />
+                            </div>
+                            <p>Enter maven coordinates to generate a dependency graph.</p>
                         </div>
-                        <p>Enter maven coordinates to generate a dependency graph.</p>
-                    </div>
+                    )
                 )}
             </main>
         </div>
