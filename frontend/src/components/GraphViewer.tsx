@@ -14,6 +14,7 @@ import {
 import dagre from 'dagre';
 import { DependencyNode } from '@/lib/api';
 import DependencyNodeComponent from './DependencyNodeComponent';
+import { Maximize, Minimize, Expand, Minimize2 } from 'lucide-react';
 
 import '@xyflow/react/dist/style.css';
 
@@ -23,6 +24,8 @@ const nodeTypes = {
 
 export default function GraphViewer({ rootNode }: { rootNode: DependencyNode }) {
     const [selectedNode, setSelectedNode] = useState<DependencyNode | null>(null);
+    const [viewMode, setViewMode] = useState<'normal' | 'browser' | 'native'>('normal');
+    const containerRef = React.useRef<HTMLDivElement>(null);
 
     const { nodes: initialNodes, edges: initialEdges, nodeMap } = useMemo(() => {
         return transformGraph(rootNode);
@@ -43,8 +46,72 @@ export default function GraphViewer({ rootNode }: { rootNode: DependencyNode }) 
         }
     }, [nodeMap]);
 
+
+    const toggleBrowserFullscreen = () => {
+        if (viewMode === 'browser') {
+            setViewMode('normal');
+        } else {
+            setViewMode('browser');
+            // Exit native full screen if active
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            }
+        }
+    };
+
+    const toggleNativeFullscreen = () => {
+        if (!containerRef.current) return;
+
+        if (!document.fullscreenElement) {
+            containerRef.current.requestFullscreen().then(() => {
+                setViewMode('native');
+            }).catch(err => {
+                console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+            });
+        } else {
+            document.exitFullscreen();
+        }
+    };
+
+    React.useEffect(() => {
+        const handleFullscreenChange = () => {
+            if (!document.fullscreenElement) {
+                // If exiting native fullscreen, revert to normal (or keep browser fullscreen if logic dictates, but usually normal)
+                if (viewMode === 'native') setViewMode('normal');
+            }
+        };
+
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, [viewMode]);
+
+    let containerClasses = "relative w-full h-[600px] border border-gray-800 rounded-lg bg-black overflow-hidden";
+    if (viewMode === 'browser') {
+        containerClasses = "fixed top-0 left-0 w-screen h-screen z-50 bg-black border-none rounded-none";
+    } else if (viewMode === 'native') {
+        containerClasses = "w-full h-full bg-black border-none rounded-none";
+    }
+
     return (
-        <div className="relative w-full h-[600px] border border-gray-800 rounded-lg bg-black overflow-hidden flex">
+        <div ref={containerRef} className={`${containerClasses} flex flex-col transition-all duration-300`}>
+            {/* Toolbar */}
+            <div className="absolute top-4 right-4 flex gap-2 z-10">
+                <button
+                    onClick={toggleBrowserFullscreen}
+                    className="p-2 bg-gray-800 hover:bg-gray-700 text-white rounded shadow border border-gray-700 transition-colors"
+                    title={viewMode === 'browser' ? "Exit Full Window" : "Full Window"}
+                >
+                    {viewMode === 'browser' ? <Minimize size={16} /> : <Maximize size={16} />}
+                </button>
+                <button
+                    onClick={toggleNativeFullscreen}
+                    className="p-2 bg-gray-800 hover:bg-gray-700 text-white rounded shadow border border-gray-700 transition-colors"
+                    title={viewMode === 'native' ? "Exit Full Screen" : "Full Screen"}
+                >
+                    {viewMode === 'native' ? <Minimize2 size={16} /> : <Expand size={16} />}
+                </button>
+            </div>
+
             <div className="flex-1 h-full relative">
                 <ReactFlow
                     nodes={nodes}
@@ -65,9 +132,8 @@ export default function GraphViewer({ rootNode }: { rootNode: DependencyNode }) 
             </div>
 
             {/* Details Sidebar */}
-            {/* Sidebar Details */}
             {selectedNode && (
-                <div className="absolute top-0 right-0 w-80 h-full bg-gray-900 border-l border-gray-800 p-6 overflow-y-auto shadow-2xl z-20">
+                <div className="absolute top-0 right-0 w-80 h-full bg-gray-900 border-l border-gray-800 p-6 overflow-y-auto shadow-2xl z-20 pt-16">
                     <div className="flex justify-between items-start mb-6">
                         <h2 className="text-lg font-bold">Node Details</h2>
                         <button onClick={() => setSelectedNode(null)} className="text-gray-500 hover:text-white">✕</button>
