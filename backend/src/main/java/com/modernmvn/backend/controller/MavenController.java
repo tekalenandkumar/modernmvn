@@ -9,16 +9,13 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/maven")
-@org.springframework.web.bind.annotation.CrossOrigin(origins = "http://localhost:3000")
+@org.springframework.web.bind.annotation.CrossOrigin(origins = "*")
 public class MavenController {
 
     private final MavenResolutionService mavenResolutionService;
-    private final com.modernmvn.backend.service.PomParserService pomParserService;
 
-    public MavenController(MavenResolutionService mavenResolutionService,
-            com.modernmvn.backend.service.PomParserService pomParserService) {
+    public MavenController(MavenResolutionService mavenResolutionService) {
         this.mavenResolutionService = mavenResolutionService;
-        this.pomParserService = pomParserService;
     }
 
     @GetMapping("/resolve")
