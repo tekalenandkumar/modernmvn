@@ -3,7 +3,7 @@ import { Handle, Position, NodeProps } from '@xyflow/react';
 import { Package, AlertTriangle, FileQuestion } from 'lucide-react';
 
 const DependencyNodeComponent = ({ data, selected }: NodeProps) => {
-    const { label, status, artifactId, groupId, version, scope } = data as any;
+    const { status, artifactId, groupId, version, scope } = data as { status: string, artifactId: string, groupId: string, version: string, scope: string };
 
     let borderColor = 'border-blue-500';
     let bgColor = 'bg-slate-800';

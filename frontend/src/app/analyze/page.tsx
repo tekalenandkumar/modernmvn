@@ -6,6 +6,8 @@ import DependencyTable from '@/components/DependencyTable';
 import { fetchDependencyGraph, DependencyNode } from '@/lib/api';
 import { AlertCircle, Search, FileCode, Layers, List } from 'lucide-react';
 
+import Link from 'next/link';
+
 export default function AnalyzePage() {
     const [mode, setMode] = useState<'coordinates' | 'pom'>('coordinates');
     const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph');
@@ -34,8 +36,12 @@ export default function AnalyzePage() {
                 pomContent: mode === 'pom' ? pomContent : undefined
             });
             setGraph(data);
-        } catch (err: any) {
-            setError(err.message || "An unknown error occurred");
+        } catch (err: unknown) {
+            if (err instanceof Error) {
+                setError(err.message);
+            } else {
+                setError("An unknown error occurred");
+            }
         } finally {
             setLoading(false);
         }
@@ -49,8 +55,8 @@ export default function AnalyzePage() {
                     <p className="text-gray-500 text-sm mt-1">Dependency Intelligence Platform</p>
                 </div>
                 <nav className="flex gap-4">
-                    <a href="/" className="text-gray-400 hover:text-white transition-colors text-sm">Home</a>
-                    <a href="/analyze" className="text-blue-400 font-bold border-b-2 border-blue-500 text-sm">Analyze</a>
+                    <Link href="/" className="text-gray-400 hover:text-white transition-colors text-sm">Home</Link>
+                    <Link href="/analyze" className="text-blue-400 font-bold border-b-2 border-blue-500 text-sm">Analyze</Link>
                 </nav>
             </header>
 

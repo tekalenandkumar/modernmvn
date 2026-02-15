@@ -6,12 +6,6 @@ interface DependencyTableProps {
     rootNode: DependencyNode;
 }
 
-const flattenDependencies = (node: DependencyNode, depth = 0, list: any[] = []) => {
-    list.push({ ...node, depth });
-    node.children.forEach(child => flattenDependencies(child, depth + 1, list));
-    return list;
-};
-
 // Remove duplicates if desired, but tree view usually implies hierarchy. 
 // If it's a "Dependency Table" as in "All dependencies", we might want a set of unique artifacts.
 // Let's do a unique list approach for a "Bill of Materials" style view.

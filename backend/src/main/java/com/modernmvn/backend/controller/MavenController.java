@@ -9,7 +9,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/maven")
-@org.springframework.web.bind.annotation.CrossOrigin(origins = "*")
 public class MavenController {
 
     private final MavenResolutionService mavenResolutionService;

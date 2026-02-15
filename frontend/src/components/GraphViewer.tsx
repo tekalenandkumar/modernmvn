@@ -10,12 +10,10 @@ import {
     useEdgesState,
     Node,
     Edge,
-    MarkerType,
 } from '@xyflow/react';
 import dagre from 'dagre';
 import { DependencyNode } from '@/lib/api';
 import DependencyNodeComponent from './DependencyNodeComponent';
-import { X } from 'lucide-react';
 
 import '@xyflow/react/dist/style.css';
 
@@ -191,8 +189,9 @@ const transformGraph = (root: DependencyNode): { nodes: Node[], edges: Edge[], n
 
     // Convert dagre nodes to React Flow nodes
     g.nodes().forEach((id) => {
-        const n = g.node(id) as any;
-        const nodeData = n.nodeData as DependencyNode; // access original data
+        // cast to unknown first to avoid eslint error, then to internal dagre node type
+        const n = g.node(id) as unknown as { x: number, y: number, nodeData: DependencyNode };
+        const nodeData = n.nodeData; // access original data
 
         nodes.push({
             id,
