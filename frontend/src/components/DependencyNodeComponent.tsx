@@ -15,6 +15,10 @@ const DependencyNodeComponent = ({ data, selected }: NodeProps) => {
         borderColor = 'border-red-500';
         bgColor = 'bg-red-950/80';
         icon = <AlertTriangle size={16} className="text-red-400" />;
+    } else if (status === 'LOCAL') {
+        borderColor = 'border-cyan-500 border-dashed';
+        bgColor = 'bg-cyan-950/30';
+        icon = <Package size={16} className="text-cyan-400" />;
     } else if (status === 'OPTIONAL') {
         borderColor = 'border-yellow-500 border-dashed';
         bgColor = 'bg-yellow-950/20';
@@ -58,6 +62,11 @@ const DependencyNodeComponent = ({ data, selected }: NodeProps) => {
                         {status === 'CONFLICT' && (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900/50 text-red-200 border border-red-800 animate-pulse">
                                 CONFLICT
+                            </span>
+                        )}
+                        {status === 'LOCAL' && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-cyan-900/50 text-cyan-200 border border-cyan-800">
+                                LOCAL MODULE
                             </span>
                         )}
                     </div>

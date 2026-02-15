@@ -201,6 +201,7 @@ export default function DependencyTable({ rootNode }: DependencyTableProps) {
                                     <option value="resolved">Resolved</option>
                                     <option value="conflict">Conflict</option>
                                     <option value="optional">Optional</option>
+                                    <option value="local">Local Module</option>
                                     <option value="error">Error</option>
                                 </select>
                             </th>
@@ -244,6 +245,10 @@ export default function DependencyTable({ rootNode }: DependencyTableProps) {
                                             ) : dep.resolutionStatus === 'OPTIONAL' ? (
                                                 <span className="flex items-center gap-1 text-yellow-400 bg-yellow-900/20 px-2 py-1 rounded w-fit border border-yellow-900/50">
                                                     <FileQuestion size={14} /> Optional
+                                                </span>
+                                            ) : dep.resolutionStatus === 'LOCAL' ? (
+                                                <span className="flex items-center gap-1 text-cyan-400 bg-cyan-900/20 px-2 py-1 rounded w-fit border border-cyan-900/50">
+                                                    <Package size={14} /> Local Module
                                                 </span>
                                             ) : dep.resolutionStatus === 'ERROR' ? (
                                                 <span className="flex items-center gap-1 text-red-500 bg-red-950/40 px-2 py-1 rounded w-fit border border-red-900">
