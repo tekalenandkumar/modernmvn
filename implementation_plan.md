@@ -60,21 +60,62 @@
 - [x] **Security Disclaimer & Limits**: Collapsible security panel detailing file limits, HTTPS enforcement, and no-storage policy.
 - [x] **Session Timeout & Cleanup**: 30-minute session timer with 5-minute warning; auto-clears results on expiry.
 
-### Milestone 5: Artifact Pages (SEO Entry)
+### Milestone 5: Artifact Pages (SEO Entry) ✅
 **Goal**: Create static/indexable pages to compete with existing repositories.
-- [ ] **Route Structure**: Implement `/artifact/[groupId]/[artifactId]/[version]` routes.
-- [ ] **Metadata Fetching**: Fetch and display artifact details (description, license, size, dates).
-- [ ] **"Recommended Version"**: Highlight the most stable/popular version.
-- [ ] **SEO Tags**: Dynamic OpenGraph images and meta tags.
+- [x] **Route Structure**: `/artifact/[groupId]/[artifactId]` and `/artifact/[groupId]/[artifactId]/[version]` with catch-all slug routing.
+- [x] **Backend DTOs & Service**: `ArtifactInfo`, `ArtifactVersion`, `ArtifactDetail` DTOs; `MavenCentralService` with Solr API integration and POM XML parsing.
+- [x] **Redis Caching**: 6-hour TTL for artifact info, 24-hour TTL for artifact detail.
+- [x] **REST Controller**: `/api/maven/artifact/{groupId}/{artifactId}` and `/api/maven/artifact/{groupId}/{artifactId}/{version}`.
+- [x] **Metadata Fetching**: Fetch and display artifact details (description, license, dependency count, dates, packaging).
+- [x] **"Recommended Version"**: Smart filtering of pre-release qualifiers (alpha, beta, RC, SNAPSHOT, milestone) to determine the recommended stable version.
+- [x] **Dependency Snippets**: Auto-generated snippets for Maven, Gradle (Groovy/Kotlin), SBT, Ivy, Leiningen, and Apache Buildr with copy-to-clipboard.
+- [x] **Version Browser**: Filterable/searchable version list with release date, "Show pre-release" toggle, and "Show all" expand.
+- [x] **SEO Tags**: Dynamic title/description, OpenGraph metadata, canonical URLs, and JSON-LD structured data for each artifact.
+- [x] **ISR (Incremental Static Regeneration)**: Server-side rendering with 1-hour revalidation for optimal SEO and performance.
+- [x] **Sitemap.xml**: Dynamic sitemap with core pages and 20 popular artifacts for Google indexing seed.
+- [x] **Popular Artifacts on Home**: Homepage "Popular Artifacts" section with links to key artifact pages.
+- [x] **Custom 404**: Branded not-found page for invalid artifact routes.
+- [x] **Navigation**: Navbar with Home/Analyze links and breadcrumb trail on artifact pages.
 
-### Milestone 6: Discovery & Search
-**Goal**: Enable full catalog search.
-- [ ] **Search API**: Implement full-text search using Meilisearch (via Docker).
-- [ ] **Trending**: Display "Trending Artifacts" or "Recently Updated" on the homepage.
-- [ ] **Categories**: Tagging and categorization of artifacts.
+## 🟠 Milestone 6: Search & Discovery
+**Goal:** Make artifact browsing fast and pleasant.
+- [ ] Artifact search API
+- [ ] Full-text search (Postgres initially)
+- [ ] Trending artifacts
+- [ ] Recently updated artifacts
+- [ ] Search UX improvements
+- [ ] Result ranking tweaks
 
-### Milestone 7: Security & Ecosystem
-**Goal**: Add security intelligence.
-- [ ] **Vulnerability Data**: Ingest CVE data (OSV/NVD).
-- [ ] **Badges**: Show security badges/warnings on artifact nodes in the graph.
-- [ ] **CLI Tool**: (Optional) Prototype a `modernmvn analyze` CLI tool.
+### Exit Criteria
+* Search feels fast and accurate
+* Discoverability improves
+
+---
+
+## 🔵 Milestone 7: Security & Version Intelligence
+**Goal:** Go beyond listing — provide guidance.
+- [ ] CVE ingestion (OSV / NVD)
+- [ ] Vulnerability badges per version
+- [ ] Version stability scoring
+- [ ] “Safe to use” indicators
+- [ ] Security disclaimer
+
+### Exit Criteria
+* Users can quickly identify risky dependencies
+* Clear, non-alarmist security UX
+
+---
+
+## 🔵 Milestone 8: Ecosystem & Tooling (Optional / Long-Term)
+**Goal:** Turn modernmvn into a platform.
+- [ ] Public API (read-only)
+- [ ] CLI tool (`modernmvn analyze`)
+- [ ] Saved analyses (optional login)
+- [ ] Usage analytics
+- [ ] Rate limiting & abuse protection
+
+### Exit Criteria
+* Repeat users
+* External integrations appear
+
+---

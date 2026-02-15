@@ -13,8 +13,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Modern Maven",
-  description: "Dependency intelligence for the modern Java developer",
+  title: {
+    default: 'Modern Maven — Dependency Intelligence for Java',
+    template: '%s | Modern Maven',
+  },
+  description: 'Modern Maven is a dependency intelligence tool for Java developers. Visualize dependency trees, detect conflicts, browse artifact metadata, and analyze POM files.',
+  keywords: ['maven', 'java', 'dependency', 'artifact', 'pom', 'gradle', 'spring boot', 'dependency management'],
+  openGraph: {
+    type: 'website',
+    siteName: 'Modern Maven',
+    title: 'Modern Maven — Dependency Intelligence for Java',
+    description: 'Visualize dependency trees, detect conflicts, and browse Maven artifacts.',
+  },
 };
 
 export default function RootLayout({
