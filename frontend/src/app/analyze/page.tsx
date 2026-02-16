@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import GraphViewer from '@/components/GraphViewer';
 import DependencyTable from '@/components/DependencyTable';
@@ -20,6 +20,18 @@ import Link from 'next/link';
 const SESSION_TIMEOUT_MINUTES = 30;
 
 export default function AnalyzePage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen bg-black text-white flex items-center justify-center">
+                <div className="text-gray-400">Loading analyzer...</div>
+            </div>
+        }>
+            <AnalyzePageContent />
+        </Suspense>
+    );
+}
+
+function AnalyzePageContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
 
