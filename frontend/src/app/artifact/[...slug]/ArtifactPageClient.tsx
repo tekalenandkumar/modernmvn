@@ -26,6 +26,8 @@ import {
     Layers,
     Search,
 } from 'lucide-react';
+import SecurityBadge from '@/components/SecurityBadge';
+import VulnerabilityPanel from '@/components/VulnerabilityPanel';
 
 interface Props {
     info: ArtifactInfo;
@@ -152,6 +154,11 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                                         <Shield size={12} /> {info.licenses[0].name}
                                     </span>
                                 )}
+                                <SecurityBadge
+                                    groupId={info.groupId}
+                                    artifactId={info.artifactId}
+                                    version={currentVersion}
+                                />
                             </div>
                         </div>
 
@@ -202,8 +209,8 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                                         key={key}
                                         onClick={() => setActiveSnippet(key)}
                                         className={`px-3 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${activeSnippet === key
-                                                ? 'border-blue-500 text-blue-400'
-                                                : 'border-transparent text-gray-500 hover:text-gray-300'
+                                            ? 'border-blue-500 text-blue-400'
+                                            : 'border-transparent text-gray-500 hover:text-gray-300'
                                             }`}
                                     >
                                         {SNIPPET_LABELS[key] || key}
@@ -257,6 +264,13 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                                 )}
                             </section>
                         )}
+
+                        {/* Security & Version Intelligence */}
+                        <VulnerabilityPanel
+                            groupId={info.groupId}
+                            artifactId={info.artifactId}
+                            version={currentVersion}
+                        />
                     </div>
 
                     {/* RIGHT: Versions List */}

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { DependencyNode } from '@/lib/api';
 import { Package, AlertTriangle, FileQuestion, ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react';
+import SecurityBadge from '@/components/SecurityBadge';
 
 interface DependencyTableProps {
     rootNode: DependencyNode;
@@ -139,6 +140,11 @@ export default function DependencyTable({ rootNode }: DependencyTableProps) {
                                     Status {renderSortIcon('resolutionStatus')}
                                 </div>
                             </th>
+                            <th className="px-6 py-3 font-medium">
+                                <div className="flex items-center gap-2">
+                                    Security
+                                </div>
+                            </th>
                         </tr>
                         {/* Filter Row */}
                         <tr className="bg-gray-900/50 border-b border-gray-800">
@@ -205,12 +211,13 @@ export default function DependencyTable({ rootNode }: DependencyTableProps) {
                                     <option value="error">Error</option>
                                 </select>
                             </th>
+                            <th className="px-6 py-2"></th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-800">
                         {processedDependencies.length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="px-6 py-12 text-center text-gray-600 italic">
+                                <td colSpan={6} className="px-6 py-12 text-center text-gray-600 italic">
                                     No dependencies match your filters.
                                 </td>
                             </tr>
@@ -259,6 +266,14 @@ export default function DependencyTable({ rootNode }: DependencyTableProps) {
                                                     Resolved
                                                 </span>
                                             )}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <SecurityBadge
+                                                groupId={dep.groupId}
+                                                artifactId={dep.artifactId}
+                                                version={dep.version}
+                                                compact
+                                            />
                                         </td>
                                     </tr>
                                 );

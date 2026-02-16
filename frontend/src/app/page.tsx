@@ -7,6 +7,8 @@ const POPULAR_ARTIFACTS = [
   { g: 'com.fasterxml.jackson.core', a: 'jackson-databind', label: 'Jackson' },
   { g: 'org.projectlombok', a: 'lombok', label: 'Lombok' },
   { g: 'org.slf4j', a: 'slf4j-api', label: 'SLF4J' },
+  { g: 'org.mockito', a: 'mockito-core', label: 'Mockito' },
+  { g: 'ch.qos.logback', a: 'logback-classic', label: 'Logback' },
 ];
 
 export default function Home() {
@@ -23,17 +25,29 @@ export default function Home() {
           Stop guessing why a version was selected. Start visualizing your build.
         </p>
 
+        {/* Quick Search */}
+        <Link
+          href="/search"
+          className="w-full flex items-center gap-3 px-5 py-3.5 rounded-xl bg-gray-900/60 border border-gray-700/50 hover:border-blue-500/40 hover:bg-gray-900/80 transition-all group cursor-pointer"
+        >
+          <svg className="w-5 h-5 text-gray-600 group-hover:text-blue-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+          </svg>
+          <span className="text-gray-600 group-hover:text-gray-400 transition-colors">Search Maven artifacts...</span>
+        </Link>
+
         <div className="flex flex-col gap-4 w-full items-center sm:items-start">
           <div className="flex gap-4">
             <Link href="/analyze" className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-full font-bold transition-all shadow-lg shadow-blue-900/40 hover:scale-105 active:scale-95">
               Start Analyzing
             </Link>
-            <a href="https://github.com/tekalenandkumar/modernmvn" target="_blank" className="border border-gray-700 hover:bg-gray-800 text-white px-8 py-3 rounded-full font-bold transition-colors">
-              GitHub
-            </a>
+            <Link href="/search" className="border border-gray-700 hover:bg-gray-800 text-white px-8 py-3 rounded-full font-bold transition-colors">
+              Browse Artifacts
+            </Link>
           </div>
 
-          <div className="flex gap-6 mt-8 text-sm text-gray-500 font-mono">
+          <div className="flex gap-6 mt-4 text-sm text-gray-500 font-mono">
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-blue-500"></span> Visual Graph
             </div>
@@ -49,7 +63,7 @@ export default function Home() {
         {/* Popular Artifacts */}
         <div className="w-full mt-8 pt-8 border-t border-gray-800">
           <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Popular Artifacts</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {POPULAR_ARTIFACTS.map(({ g, a, label }) => (
               <Link
                 key={`${g}:${a}`}
@@ -69,4 +83,3 @@ export default function Home() {
     </div>
   );
 }
-

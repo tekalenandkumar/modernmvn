@@ -11,8 +11,13 @@ const nextConfig: NextConfig = {
         source: '/api/maven/:path*',
         destination: `${backendUrl}/api/maven/:path*`,
       },
+      {
+        source: '/api/security/:path*',
+        destination: `${backendUrl}/api/security/:path*`,
+      },
     ]
   },
 };
 
 export default nextConfig;
+

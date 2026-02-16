@@ -53,9 +53,10 @@ export default function AnalyzePage() {
 
     // ─── URL sync on mount ──────────────────────────────────────
     useEffect(() => {
-        const g = searchParams.get('g');
-        const a = searchParams.get('a');
-        const v = searchParams.get('v');
+        // Support both short (g/a/v) and long (groupId/artifactId/version) param names
+        const g = searchParams.get('g') || searchParams.get('groupId');
+        const a = searchParams.get('a') || searchParams.get('artifactId');
+        const v = searchParams.get('v') || searchParams.get('version');
 
         if (g && a && v) {
             setGroupId(g);

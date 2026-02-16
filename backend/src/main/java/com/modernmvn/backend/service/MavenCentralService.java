@@ -7,6 +7,8 @@ import com.modernmvn.backend.dto.ArtifactInfo;
 import com.modernmvn.backend.dto.ArtifactInfo.LicenseInfo;
 import com.modernmvn.backend.dto.ArtifactVersion;
 import com.modernmvn.backend.dto.DependencyNode;
+import com.modernmvn.backend.dto.SearchResult;
+import com.modernmvn.backend.dto.SearchResult.SearchResultItem;
 
 import org.apache.maven.model.License;
 import org.apache.maven.model.Model;
@@ -138,6 +140,153 @@ public class MavenCentralService {
             throw new RuntimeException("Failed to fetch artifact detail for "
                     + groupId + ":" + artifactId + ":" + version + " — " + e.getMessage(), e);
         }
+    }
+
+    // ──────────────────────── Search API ─────────────────────────
+
+    /**
+     * Search artifacts on Maven Central using free-text or structured query.
+     * Supports pagination via page/pageSize.
+     */
+    @Cacheable(value = "searchResults", key = "#query + ':' + #page + ':' + #pageSize")
+    public SearchResult searchArtifacts(String query, int page, int pageSize) {
+        try {
+            int start = page * pageSize;
+            // Maven Central Solr supports free-text search on g, a, and tags
+            String solrQuery = buildSearchQuery(query);
+            String url = SEARCH_API + "?q=" + solrQuery
+                    + "&rows=" + pageSize
+                    + "&start=" + start
+                    + "&wt=json";
+
+            String body = httpGet(url);
+            JsonNode root = objectMapper.readTree(body);
+            JsonNode response = root.path("response");
+            int totalResults = response.path("numFound").asInt(0);
+            JsonNode docs = response.path("docs");
+
+            List<SearchResultItem> items = new ArrayList<>();
+            for (JsonNode doc : docs) {
+                items.add(new SearchResultItem(
+                        doc.path("g").asText(""),
+                        doc.path("a").asText(""),
+                        doc.path("latestVersion").asText(""),
+                        doc.path("p").asText("jar"),
+                        null, // description not available from Solr search
+                        doc.path("timestamp").asLong(0),
+                        doc.path("versionCount").asLong(0)));
+            }
+
+            return new SearchResult(query, totalResults, page, pageSize, items);
+        } catch (Exception e) {
+            throw new RuntimeException("Search failed for query: " + query + " — " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Get recently updated artifacts from Maven Central (sorted by timestamp desc).
+     */
+    @Cacheable(value = "recentArtifacts", key = "#count")
+    public List<SearchResultItem> getRecentlyUpdated(int count) {
+        try {
+            String url = SEARCH_API + "?q=*:*"
+                    + "&rows=" + count
+                    + "&sort=timestamp+desc"
+                    + "&wt=json";
+
+            String body = httpGet(url);
+            JsonNode root = objectMapper.readTree(body);
+            JsonNode docs = root.path("response").path("docs");
+
+            List<SearchResultItem> items = new ArrayList<>();
+            for (JsonNode doc : docs) {
+                items.add(new SearchResultItem(
+                        doc.path("g").asText(""),
+                        doc.path("a").asText(""),
+                        doc.path("latestVersion").asText(""),
+                        doc.path("p").asText("jar"),
+                        null,
+                        doc.path("timestamp").asLong(0),
+                        doc.path("versionCount").asLong(0)));
+            }
+            return items;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to fetch recent artifacts: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Get trending/popular artifacts – curated list of well-known Java libraries
+     * enriched with live metadata from Maven Central. Cached for 12 hours.
+     */
+    @Cacheable(value = "trendingArtifacts")
+    public List<SearchResultItem> getTrendingArtifacts() {
+        // Curated list of popular Java artifacts (ordered by ecosystem importance)
+        String[][] trending = {
+                { "org.springframework.boot", "spring-boot-starter-web" },
+                { "org.springframework.boot", "spring-boot-starter-data-jpa" },
+                { "com.google.guava", "guava" },
+                { "org.apache.commons", "commons-lang3" },
+                { "com.fasterxml.jackson.core", "jackson-databind" },
+                { "org.projectlombok", "lombok" },
+                { "org.slf4j", "slf4j-api" },
+                { "ch.qos.logback", "logback-classic" },
+                { "org.mockito", "mockito-core" },
+                { "com.google.code.gson", "gson" },
+                { "io.netty", "netty-all" },
+                { "org.apache.kafka", "kafka-clients" },
+                { "com.zaxxer", "HikariCP" },
+                { "org.postgresql", "postgresql" },
+                { "org.hibernate.orm", "hibernate-core" },
+                { "io.micrometer", "micrometer-core" },
+                { "com.squareup.okhttp3", "okhttp" },
+                { "org.apache.httpcomponents.client5", "httpclient5" },
+                { "io.projectreactor", "reactor-core" },
+                { "org.junit.jupiter", "junit-jupiter" },
+        };
+
+        List<SearchResultItem> items = new ArrayList<>();
+        for (String[] artifact : trending) {
+            try {
+                JsonNode doc = fetchSolrDoc(artifact[0], artifact[1]);
+                items.add(new SearchResultItem(
+                        artifact[0], artifact[1],
+                        doc.path("latestVersion").asText(""),
+                        doc.path("p").asText("jar"),
+                        null,
+                        doc.path("timestamp").asLong(0),
+                        doc.path("versionCount").asLong(0)));
+            } catch (Exception ignored) {
+                // Skip artifacts that fail to resolve
+            }
+        }
+        return items;
+    }
+
+    /**
+     * Build a Solr query from user input. Uses pre-encoded %22 for quotes
+     * (same pattern as fetchSolrDoc / fetchAllVersions). Supports:
+     * - "groupId:artifactId" notation
+     * - free text search
+     */
+    private String buildSearchQuery(String input) {
+        if (input == null || input.isBlank())
+            return "*:*";
+        String trimmed = input.trim();
+
+        // If input contains a colon, treat as g:a search
+        if (trimmed.contains(":")) {
+            String[] parts = trimmed.split(":", 2);
+            return "g:%22" + encode(parts[0].trim()) + "%22+AND+a:%22" + encode(parts[1].trim()) + "%22";
+        }
+
+        // If input looks like a groupId (has dots but no spaces), search by group
+        if (trimmed.contains(".") && !trimmed.contains(" ")) {
+            return "g:%22" + encode(trimmed) + "%22+OR+a:%22" + encode(trimmed) + "%22";
+        }
+
+        // Free text: search across group and artifact
+        return "a:%22" + encode(trimmed) + "%22+OR+g:%22" + encode(trimmed) + "%22";
     }
 
     // ──────────────────────── Solr queries ───────────────────────
