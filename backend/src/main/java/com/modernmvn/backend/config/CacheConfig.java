@@ -49,6 +49,17 @@ public class CacheConfig implements CachingConfigurer {
                                 defaultConfig.entryTtl(Duration.ofMinutes(15)));
                 cacheConfigurations.put("trendingArtifacts",
                                 defaultConfig.entryTtl(Duration.ofHours(12)));
+                // Group browse cache
+                cacheConfigurations.put("groupArtifacts",
+                                defaultConfig.entryTtl(Duration.ofHours(6)));
+                // Reverse dependency caches
+                cacheConfigurations.put("reverseDeps",
+                                defaultConfig.entryTtl(Duration.ofHours(6)));
+                cacheConfigurations.put("reverseDepsCount",
+                                defaultConfig.entryTtl(Duration.ofHours(12)));
+                // Badge cache
+                cacheConfigurations.put("artifactLatestVersion",
+                                defaultConfig.entryTtl(Duration.ofHours(1)));
                 // Security & vulnerability caches
                 cacheConfigurations.put("vulnerabilities",
                                 defaultConfig.entryTtl(Duration.ofHours(1)));

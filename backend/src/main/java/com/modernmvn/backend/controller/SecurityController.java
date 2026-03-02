@@ -151,4 +151,29 @@ public class SecurityController {
                     .body(Map.of("error", "Badge lookup failed: " + e.getMessage()));
         }
     }
+
+    /**
+     * Historical vulnerability trend for an artifact.
+     * Returns all scan data points within the given time window, sorted by date.
+     * Powered by PostgreSQL persistence layer.
+     * GET /api/security/{groupId}/{artifactId}/trend?days=90
+     */
+    @GetMapping("/{groupId}/{artifactId}/trend")
+    public ResponseEntity<?> getVulnerabilityTrend(
+            @PathVariable String groupId,
+            @PathVariable String artifactId,
+            @RequestParam(defaultValue = "90") int days) {
+        try {
+            days = Math.min(days, 365);
+            var trend = securityService.getVulnerabilityTrend(groupId, artifactId, days);
+            return ResponseEntity.ok(Map.of(
+                    "groupId", groupId,
+                    "artifactId", artifactId,
+                    "days", days,
+                    "dataPoints", trend));
+        } catch (Exception e) {
+            return ResponseEntity.status(500)
+                    .body(Map.of("error", "Failed to fetch trend data: " + e.getMessage()));
+        }
+    }
 }

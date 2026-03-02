@@ -8,6 +8,8 @@ import com.modernmvn.backend.dto.SecurityAdvisory.Severity;
 import com.modernmvn.backend.dto.VersionIntelligence;
 import com.modernmvn.backend.dto.VersionIntelligence.*;
 import com.modernmvn.backend.dto.VulnerabilityReport;
+import com.modernmvn.backend.entity.VulnerabilityScan;
+import com.modernmvn.backend.repository.VulnerabilityScanRepository;
 
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Provides security vulnerability lookups via the OSV.dev API
@@ -33,10 +36,13 @@ public class SecurityService {
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+    private final VulnerabilityScanRepository scanRepository;
 
     // OSV.dev is free, no API key required
     private static final String OSV_QUERY_URL = "https://api.osv.dev/v1/query";
     private static final String OSV_VULN_URL = "https://api.osv.dev/v1/vulns/";
+    // NVD API — free, no key needed for basic use (rate-limited)
+    private static final String NVD_CVE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=";
 
     // Pre-release pattern (matches alpha, beta, RC, SNAPSHOT, etc.)
     private static final Pattern PRE_RELEASE_PATTERN = Pattern.compile(
@@ -46,12 +52,13 @@ public class SecurityService {
     private static final long DAYS_RECENT = 90; // < 90 days = "recent"
     private static final long DAYS_OUTDATED = 1825; // > 5 years = "outdated"
 
-    public SecurityService() {
+    public SecurityService(VulnerabilityScanRepository scanRepository) {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
         this.objectMapper = new ObjectMapper();
+        this.scanRepository = scanRepository;
     }
 
     // ──────────────────────── Vulnerability Report ────────────────────────
@@ -64,9 +71,15 @@ public class SecurityService {
         try {
             List<SecurityAdvisory> advisories = queryOsv(groupId, artifactId, version);
 
+            // Enrich with NVD for real CVSS scores on CVE IDs
+            advisories = enrichWithNvdCvss(advisories);
+
             int critical = 0, high = 0, medium = 0, low = 0;
             Severity highest = null;
+            double maxCvss = -1;
             for (SecurityAdvisory adv : advisories) {
+                if (adv.cvssScore() > maxCvss)
+                    maxCvss = adv.cvssScore();
                 switch (adv.severity()) {
                     case CRITICAL -> {
                         critical++;
@@ -90,17 +103,51 @@ public class SecurityService {
                 }
             }
 
-            return new VulnerabilityReport(
+            VulnerabilityReport report = new VulnerabilityReport(
                     groupId, artifactId, version,
-                    advisories.size(),
-                    critical, high, medium, low,
-                    highest, advisories,
-                    VulnerabilityReport.DISCLAIMER);
+                    advisories.size(), critical, high, medium, low,
+                    highest, advisories, VulnerabilityReport.DISCLAIMER);
+
+            // Persist to DB (skip if already scanned within 24h)
+            persistScanResult(groupId, artifactId, version, report, maxCvss);
+
+            return report;
 
         } catch (Exception e) {
-            // If OSV is down, return clean with a note rather than failing
             return VulnerabilityReport.clean(groupId, artifactId, version);
         }
+    }
+
+    // ──────────────────────── Historical Trend ────────────────────────
+
+    /**
+     * Returns historical vulnerability counts for an artifact (all versions
+     * combined).
+     * Sourced from the PostgreSQL persistence layer.
+     * Returns data points sorted by scan date ascending.
+     */
+    public List<TrendPoint> getVulnerabilityTrend(String groupId, String artifactId, int days) {
+        Instant since = Instant.now().minus(days, ChronoUnit.DAYS);
+        List<VulnerabilityScan> scans = scanRepository.findTrendSince(groupId, artifactId, since);
+        return scans.stream()
+                .map(s -> new TrendPoint(
+                        s.getScannedAt().toString(),
+                        s.getVersion(),
+                        s.getTotalVulnerabilities(),
+                        s.getCriticalCount(),
+                        s.getHighCount(),
+                        s.getMaxCvssScore()))
+                .collect(Collectors.toList());
+    }
+
+    /** A single trend data point (serialised to JSON). */
+    public record TrendPoint(
+            String date,
+            String version,
+            int totalVulnerabilities,
+            int criticalCount,
+            int highCount,
+            double maxCvssScore) {
     }
 
     // ──────────────────────── Version Intelligence ────────────────────────
@@ -443,5 +490,172 @@ public class SecurityService {
             case LOW -> 3;
             case UNKNOWN -> 4;
         };
+    }
+
+    // ──────────────────────── NVD CVSS Enrichment ─────────────────────────
+
+    /**
+     * For any advisory that has a CVE ID alias but no numeric CVSS score,
+     * call the NVD API to get the real numeric score. This supplements OSV data
+     * which only provides CVSS vectors, not numeric scores.
+     * Rate-limited: NVD allows ~5 req/s without an API key.
+     */
+    private List<SecurityAdvisory> enrichWithNvdCvss(List<SecurityAdvisory> advisories) {
+        List<SecurityAdvisory> enriched = new ArrayList<>();
+        for (SecurityAdvisory adv : advisories) {
+            if (adv.cvssScore() > 0) {
+                enriched.add(adv); // already has a score
+                continue;
+            }
+            // Find any CVE alias
+            String cveId = adv.aliases().stream()
+                    .filter(a -> a.startsWith("CVE-"))
+                    .findFirst()
+                    .orElse(null);
+
+            if (cveId == null) {
+                // No CVE — try to parse from CVSS vector string
+                double parsedScore = parseCvssVector(adv.cvssVector());
+                if (parsedScore > 0) {
+                    Severity newSev = cvssToSeverity(parsedScore);
+                    enriched.add(new SecurityAdvisory(
+                            adv.id(), adv.summary(), adv.details(),
+                            newSev, parsedScore, adv.cvssVector(),
+                            adv.cweIds(), adv.aliases(),
+                            adv.published(), adv.modified(),
+                            adv.fixedVersion(), adv.referenceUrl()));
+                } else {
+                    enriched.add(adv);
+                }
+                continue;
+            }
+
+            // Query NVD for the CVE
+            try {
+                double nvdScore = fetchNvdCvssScore(cveId);
+                if (nvdScore > 0) {
+                    Severity newSev = cvssToSeverity(nvdScore);
+                    enriched.add(new SecurityAdvisory(
+                            adv.id(), adv.summary(), adv.details(),
+                            newSev, nvdScore, adv.cvssVector(),
+                            adv.cweIds(), adv.aliases(),
+                            adv.published(), adv.modified(),
+                            adv.fixedVersion(), adv.referenceUrl()));
+                } else {
+                    enriched.add(adv);
+                }
+            } catch (Exception e) {
+                enriched.add(adv); // NVD lookup failed — keep original
+            }
+        }
+        return enriched;
+    }
+
+    /**
+     * Query NVD 2.0 API for a CVE's base CVSS score.
+     * Returns -1 if unavailable.
+     */
+    private double fetchNvdCvssScore(String cveId) throws Exception {
+        String url = NVD_CVE_URL + cveId;
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("User-Agent", "modernmvn/1.0")
+                .timeout(Duration.ofSeconds(8))
+                .GET()
+                .build();
+        HttpResponse<String> resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+        if (resp.statusCode() != 200)
+            return -1;
+
+        JsonNode root = objectMapper.readTree(resp.body());
+        JsonNode vulns = root.path("vulnerabilities");
+        if (!vulns.isArray() || vulns.isEmpty())
+            return -1;
+
+        JsonNode cve = vulns.get(0).path("cve");
+
+        // Try CVSS v3.1 first, then v3.0, then v2.0
+        for (String metricKey : List.of("cvssMetricV31", "cvssMetricV30", "cvssMetricV2")) {
+            JsonNode metrics = cve.path("metrics").path(metricKey);
+            if (metrics.isArray() && !metrics.isEmpty()) {
+                JsonNode cvssData = metrics.get(0).path("cvssData");
+                if (cvssData.has("baseScore")) {
+                    return cvssData.get("baseScore").asDouble(-1);
+                }
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Approximate CVSS score from a CVSS vector string.
+     * Uses the AV:N/AC:L/PR:N/UI:N impact metrics as heuristics.
+     * For a full implementation integrate the CVSS calculator library.
+     */
+    private double parseCvssVector(String vector) {
+        if (vector == null || !vector.startsWith("CVSS:"))
+            return -1;
+
+        // Extract component parts and derive a rough score
+        // High impact: AV:N (network) + AC:L (low) + no auth + C:H/I:H/A:H
+        boolean networkReachable = vector.contains("AV:N");
+        boolean lowComplexity = vector.contains("AC:L");
+        boolean noPriv = vector.contains("PR:N");
+        boolean highConf = vector.contains("C:H");
+        boolean highInteg = vector.contains("I:H");
+        boolean highAvail = vector.contains("A:H");
+
+        double score = 5.0;
+        if (networkReachable)
+            score += 1.0;
+        if (lowComplexity)
+            score += 0.5;
+        if (noPriv)
+            score += 0.5;
+        if (highConf)
+            score += 1.0;
+        if (highInteg)
+            score += 1.0;
+        if (highAvail)
+            score += 0.5;
+
+        return Math.min(10.0, score);
+    }
+
+    // ──────────────────────── DB Persistence ─────────────────────────
+
+    /**
+     * Persist a scan result to PostgreSQL. Skips if the same GAV was already
+     * scanned within the last 24 hours to avoid redundant writes.
+     */
+    private void persistScanResult(String groupId, String artifactId, String version,
+            VulnerabilityReport report, double maxCvss) {
+        try {
+            if (groupId == null || groupId.isEmpty() || artifactId == null || artifactId.isEmpty())
+                return;
+
+            Instant oneDayAgo = Instant.now().minus(24, ChronoUnit.HOURS);
+            boolean alreadyScanned = scanRepository
+                    .existsByGroupIdAndArtifactIdAndVersionAndScannedAtAfter(
+                            groupId, artifactId, version, oneDayAgo);
+            if (alreadyScanned)
+                return;
+
+            String highestSev = report.highestSeverity() != null
+                    ? report.highestSeverity().name()
+                    : null;
+
+            VulnerabilityScan scan = new VulnerabilityScan(
+                    groupId, artifactId, version,
+                    report.totalVulnerabilities(),
+                    report.criticalCount(), report.highCount(),
+                    report.mediumCount(), report.lowCount(),
+                    highestSev, maxCvss,
+                    "OSV+NVD");
+
+            scanRepository.save(scan);
+        } catch (Exception e) {
+            // Persistence failure must never affect the API response
+        }
     }
 }

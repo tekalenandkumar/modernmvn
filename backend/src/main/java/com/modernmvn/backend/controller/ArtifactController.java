@@ -77,6 +77,70 @@ public class ArtifactController {
         }
     }
 
+    // ─────────────── Group Browse ─────────────────────────────
+
+    /**
+     * GET /api/maven/group/{groupId}?page=0&size=20
+     * Returns paginated list of all artifacts under a given groupId.
+     */
+    @GetMapping("/group/{groupId}")
+    public ResponseEntity<?> getGroupArtifacts(
+            @PathVariable String groupId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        try {
+            size = Math.min(size, 50);
+            SearchResult result = mavenCentralService.searchByGroup(groupId, page, size);
+            if (result.totalResults() == 0) {
+                return ResponseEntity.status(404)
+                        .body(Map.of("error", "No artifacts found for group: " + groupId));
+            }
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.status(500)
+                    .body(Map.of("error", "Failed to browse group: " + e.getMessage()));
+        }
+    }
+
+    // ─────────────── Reverse Dependencies ────────────────────
+
+    /**
+     * GET /api/maven/artifact/{groupId}/{artifactId}/usedby?page=0&size=10
+     * Returns paginated list of artifacts that depend on this artifact.
+     */
+    @GetMapping("/artifact/{groupId}/{artifactId}/usedby")
+    public ResponseEntity<?> getReverseDependencies(
+            @PathVariable String groupId,
+            @PathVariable String artifactId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+        try {
+            size = Math.min(size, 50);
+            SearchResult result = mavenCentralService.getReverseDependencies(groupId, artifactId, page, size);
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.status(500)
+                    .body(Map.of("error", "Failed to fetch reverse dependencies: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * GET /api/maven/artifact/{groupId}/{artifactId}/usedby/count
+     * Returns just the count of artifacts that depend on this artifact.
+     */
+    @GetMapping("/artifact/{groupId}/{artifactId}/usedby/count")
+    public ResponseEntity<?> getReverseDependencyCount(
+            @PathVariable String groupId,
+            @PathVariable String artifactId) {
+        try {
+            int count = mavenCentralService.getReverseDependencyCount(groupId, artifactId);
+            return ResponseEntity.ok(Map.of("count", count));
+        } catch (Exception e) {
+            return ResponseEntity.status(500)
+                    .body(Map.of("error", "Failed to fetch reverse dependency count: " + e.getMessage()));
+        }
+    }
+
     // ─────────────────── Artifact Detail ─────────────────────
 
     /**

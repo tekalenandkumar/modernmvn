@@ -77,42 +77,67 @@
 - [x] **Custom 404**: Branded not-found page for invalid artifact routes.
 - [x] **Navigation**: Navbar with Home/Analyze links and breadcrumb trail on artifact pages.
 
-## 🟠 Milestone 6: Search & Discovery
+## 🟢 Milestone 6: Search & Discovery ✅
 **Goal:** Make artifact browsing fast and pleasant.
-- [ ] Artifact search API
-- [ ] Full-text search (Postgres initially)
-- [ ] Trending artifacts
-- [ ] Recently updated artifacts
-- [ ] Search UX improvements
-- [ ] Result ranking tweaks
+- [x] Artifact search API (Solr-backed full-text search via Maven Central)
+- [x] Full-text search with debounced input and pagination
+- [x] Trending artifacts (curated list enriched with live Solr metadata)
+- [x] Recently updated artifacts (`*:* sort=timestamp desc`)
+- [x] Search UX (query suggestions, skeleton loading, result cards)
+- [x] Enhanced homepage with live Trending + "What's New" feeds
 
 ### Exit Criteria
-* Search feels fast and accurate
-* Discoverability improves
+* ✅ Search feels fast and accurate
+* ✅ Discoverability improves with trending + recent feeds
 
 ---
 
-## 🔵 Milestone 7: Security & Version Intelligence
+## 🟠 Milestone 7: Security & Version Intelligence (Partially Complete)
 **Goal:** Go beyond listing — provide guidance.
-- [ ] CVE ingestion (OSV / NVD)
-- [ ] Vulnerability badges per version
-- [ ] Version stability scoring
-- [ ] “Safe to use” indicators
-- [ ] Security disclaimer
+- [x] CVE ingestion (OSV.dev API integration)
+- [x] Vulnerability badges per version (SecurityBadge component)
+- [x] Version stability scoring (pre-release filtering, recommended logic)
+- [x] "Safe to use" / "No known vulnerabilities" indicators
+- [x] Security disclaimer (collapsible panel)
+- [x] Graceful error handling (CacheErrorHandler)
+- [ ] Deeper NVD integration for CVSS scores
+- [ ] Historical vulnerability trends
 
 ### Exit Criteria
-* Users can quickly identify risky dependencies
-* Clear, non-alarmist security UX
+* ✅ Users can quickly identify risky dependencies
+* ✅ Clear, non-alarmist security UX
 
 ---
 
-## 🔵 Milestone 8: Ecosystem & Tooling (Optional / Long-Term)
+## 🟢 Milestone 8: Gap-Closing Features ✅
+**Goal:** Close the most impactful gaps vs. mvnrepository.com.
+- [x] **Reverse Dependencies ("Used By")**: Solr `d:"g:a"` queries for finding dependent artifacts
+  - [x] Backend: `getReverseDependencies()` + `getReverseDependencyCount()` with Redis caching
+  - [x] Controller: `GET /api/maven/artifact/{g}/{a}/usedby` (paginated) + `/usedby/count`
+  - [x] Frontend: "Used by N" badge in header + expandable paginated list
+- [x] **Embeddable Badges**: SVG version badges for GitHub READMEs
+  - [x] Backend: `BadgeController` with inline SVG generation (flat + rounded styles)
+  - [x] Frontend: Badges section on artifact page with preview + copyable snippets (Markdown/HTML/RST)
+- [x] **Enhanced Homepage**: Live data feeds replacing static artifact list
+  - [x] `HomeContent` component fetching trending + recently updated artifacts
+
+### Exit Criteria
+* ✅ Artifact pages show "Used By" count and dependents list
+* ✅ Badge endpoint returns valid SVG at `/badge/{g}/{a}`
+* ✅ Homepage shows live trending + recently updated data
+
+---
+
+## 🔵 Milestone 9: Ecosystem & Tooling (Optional / Long-Term)
 **Goal:** Turn modernmvn into a platform.
 - [ ] Public API (read-only)
 - [ ] CLI tool (`modernmvn analyze`)
 - [ ] Saved analyses (optional login)
 - [ ] Usage analytics
 - [ ] Rate limiting & abuse protection
+- [ ] Categories / tag browsing
+- [ ] Popularity / usage metrics
+- [ ] BOM support
 
 ### Exit Criteria
 * Repeat users

@@ -74,6 +74,99 @@ export async function fetchArtifactDetail(groupId: string, artifactId: string, v
     return res.json();
 }
 
+/**
+ * Fetch all artifacts under a given groupId (paginated, sorted alphabetically).
+ */
+export async function fetchGroupArtifacts(
+    groupId: string,
+    page: number = 0,
+    size: number = 20
+): Promise<{ query: string; totalResults: number; page: number; pageSize: number; items: GroupArtifactItem[] }> {
+    const params = new URLSearchParams({ page: String(page), size: String(size) });
+    const res = await fetch(
+        `${BACKEND_BASE}/api/maven/group/${encodeURIComponent(groupId)}?${params}`,
+        { next: { revalidate: 21600 } } // ISR: revalidate every 6 hours
+    );
+    if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.error || `Group not found: ${groupId}`);
+    }
+    return res.json();
+}
+
+export interface GroupArtifactItem {
+    groupId: string;
+    artifactId: string;
+    latestVersion: string;
+    packaging: string;
+    description: string | null;
+    timestamp: number;
+    versionCount: number;
+}
+
+// ─── Reverse Dependencies ("Used By") ───────────────────────────
+
+export interface ReverseDependencyResult {
+    query: string;
+    totalResults: number;
+    page: number;
+    pageSize: number;
+    items: ReverseDependencyItem[];
+}
+
+export interface ReverseDependencyItem {
+    groupId: string;
+    artifactId: string;
+    latestVersion: string;
+    packaging: string;
+    description: string | null;
+    timestamp: number;
+    versionCount: number;
+}
+
+/**
+ * Fetch artifacts that depend on the given artifact ("Used By").
+ * Uses relative /api/maven/ path so it works from both server and client via Next.js rewrite proxy.
+ */
+export async function fetchReverseDependencies(
+    groupId: string,
+    artifactId: string,
+    page: number = 0,
+    size: number = 10
+): Promise<ReverseDependencyResult> {
+    const params = new URLSearchParams({ page: String(page), size: String(size) });
+    // Use relative path — works on both client (via Next.js rewrite) and server (via BACKEND_BASE)
+    const base = typeof window !== 'undefined' ? '' : (process.env.BACKEND_URL || 'http://localhost:8080');
+    const path = `${base}/api/maven/artifact/${encodeURIComponent(groupId)}/${encodeURIComponent(artifactId)}/usedby?${params}`;
+    const res = await fetch(path, { next: { revalidate: 3600 } });
+    if (!res.ok) {
+        throw new Error(`Failed to fetch reverse dependencies: ${res.statusText}`);
+    }
+    return res.json();
+}
+
+/**
+ * Fetch the count of artifacts that depend on the given artifact.
+ * Uses relative /api/maven/ path so it works from the browser.
+ */
+export async function fetchReverseDependencyCount(
+    groupId: string,
+    artifactId: string
+): Promise<number> {
+    try {
+        const base = typeof window !== 'undefined' ? '' : (process.env.BACKEND_URL || 'http://localhost:8080');
+        const res = await fetch(
+            `${base}/api/maven/artifact/${encodeURIComponent(groupId)}/${encodeURIComponent(artifactId)}/usedby/count`,
+            { next: { revalidate: 3600 } }
+        );
+        if (!res.ok) return 0;
+        const data = await res.json();
+        return data.count || 0;
+    } catch {
+        return 0;
+    }
+}
+
 // ─── Utility ────────────────────────────────────────────────────
 
 /**
@@ -106,6 +199,15 @@ export function timeAgo(timestamp: number): string {
         if (count >= 1) return `${count} ${label}${count > 1 ? 's' : ''} ago`;
     }
     return 'just now';
+}
+
+/**
+ * Format large numbers for display (e.g., 16800 → "16.8k").
+ */
+export function formatCount(count: number): string {
+    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
+    if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
+    return String(count);
 }
 
 /**

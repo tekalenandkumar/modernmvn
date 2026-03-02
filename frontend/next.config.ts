@@ -15,6 +15,10 @@ const nextConfig: NextConfig = {
         source: '/api/security/:path*',
         destination: `${backendUrl}/api/security/:path*`,
       },
+      {
+        source: '/badge/:path*',
+        destination: `${backendUrl}/badge/:path*`,
+      },
     ]
   },
 };

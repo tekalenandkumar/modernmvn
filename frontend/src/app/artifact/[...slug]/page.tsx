@@ -1,26 +1,36 @@
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { fetchArtifactInfo, fetchArtifactDetail } from '@/lib/artifact-api';
+import { fetchArtifactInfo, fetchArtifactDetail, fetchGroupArtifacts } from '@/lib/artifact-api';
 import ArtifactPageClient from './ArtifactPageClient';
+import GroupPageClient from './GroupPageClient';
 
-// ISR: regenerate every hour
+// ISR: regenerate every hour for artifact pages, 6h for group pages
 export const revalidate = 3600;
 
 interface PageProps {
     params: Promise<{ slug: string[] }>;
 }
 
+type ParsedSlug =
+    | { kind: 'group'; groupId: string }
+    | { kind: 'artifact'; groupId: string; artifactId: string; version?: string }
+    | null;
+
 /**
  * Parse the slug segments:
- *   /artifact/org.apache.commons/commons-lang3        → [groupId, artifactId]
- *   /artifact/org.apache.commons/commons-lang3/3.14.0 → [groupId, artifactId, version]
+ *   /artifact/org.springframework.boot                     → group page
+ *   /artifact/org.apache.commons/commons-lang3             → artifact page
+ *   /artifact/org.apache.commons/commons-lang3/3.14.0     → artifact version page
  */
-function parseSlug(slug: string[]): { groupId: string; artifactId: string; version?: string } | null {
+function parseSlug(slug: string[]): ParsedSlug {
+    if (slug.length === 1) {
+        return { kind: 'group', groupId: slug[0] };
+    }
     if (slug.length === 2) {
-        return { groupId: slug[0], artifactId: slug[1] };
+        return { kind: 'artifact', groupId: slug[0], artifactId: slug[1] };
     }
     if (slug.length === 3) {
-        return { groupId: slug[0], artifactId: slug[1], version: slug[2] };
+        return { kind: 'artifact', groupId: slug[0], artifactId: slug[1], version: slug[2] };
     }
     return null;
 }
@@ -30,8 +40,24 @@ function parseSlug(slug: string[]): { groupId: string; artifactId: string; versi
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
     const { slug } = await params;
     const parsed = parseSlug(slug);
-    if (!parsed) return { title: 'Artifact Not Found | Modern Maven' };
+    if (!parsed) return { title: 'Not Found | Modern Maven' };
 
+    if (parsed.kind === 'group') {
+        const { groupId } = parsed;
+        return {
+            title: `${groupId} Artifacts | Modern Maven`,
+            description: `Browse all Maven artifacts published under the ${groupId} group on Modern Maven.`,
+            openGraph: {
+                title: `${groupId} Maven Artifacts`,
+                description: `All artifacts in the ${groupId} Maven group.`,
+                type: 'website',
+                siteName: 'Modern Maven',
+            },
+            alternates: { canonical: `/artifact/${groupId}` },
+        };
+    }
+
+    // Artifact or artifact+version
     const { groupId, artifactId, version } = parsed;
     const coord = version ? `${groupId}:${artifactId}:${version}` : `${groupId}:${artifactId}`;
 
@@ -55,9 +81,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
             alternates: {
                 canonical: `/artifact/${groupId}/${artifactId}${version ? `/${version}` : ''}`,
             },
-            other: {
-                'application-name': 'Modern Maven',
-            },
+            other: { 'application-name': 'Modern Maven' },
         };
     } catch {
         return {
@@ -74,8 +98,27 @@ export default async function ArtifactPage({ params }: PageProps) {
     const parsed = parseSlug(slug);
     if (!parsed) notFound();
 
-    const { groupId, artifactId, version } = parsed;
+    // ── Group Page ──────────────────────────────────────────────
+    if (parsed.kind === 'group') {
+        const { groupId } = parsed;
+        try {
+            const data = await fetchGroupArtifacts(groupId, 0, 20);
+            return (
+                <GroupPageClient
+                    groupId={groupId}
+                    totalResults={data.totalResults}
+                    initialItems={data.items}
+                    initialPage={0}
+                    pageSize={20}
+                />
+            );
+        } catch {
+            notFound();
+        }
+    }
 
+    // ── Artifact / Version Page ─────────────────────────────────
+    const { groupId, artifactId, version } = parsed;
     try {
         const info = await fetchArtifactInfo(groupId, artifactId);
 

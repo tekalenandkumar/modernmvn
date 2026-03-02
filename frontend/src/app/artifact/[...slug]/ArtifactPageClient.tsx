@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
     ArtifactInfo,
@@ -8,7 +8,11 @@ import {
     ArtifactVersion,
     formatDate,
     timeAgo,
+    formatCount,
     SNIPPET_LABELS,
+    fetchReverseDependencies,
+    fetchReverseDependencyCount,
+    type ReverseDependencyItem,
 } from '@/lib/artifact-api';
 import {
     Package,
@@ -25,9 +29,14 @@ import {
     FileCode,
     Layers,
     Search,
+    Users,
+    Image,
+    ArrowRight,
+    Loader2,
 } from 'lucide-react';
 import SecurityBadge from '@/components/SecurityBadge';
 import VulnerabilityPanel from '@/components/VulnerabilityPanel';
+import VulnerabilityTrendChart from '@/components/VulnerabilityTrendChart';
 
 interface Props {
     info: ArtifactInfo;
@@ -42,12 +51,49 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
     const [versionFilter, setVersionFilter] = useState('');
     const [showPreRelease, setShowPreRelease] = useState(false);
 
+    // Used By state
+    const [usedByCount, setUsedByCount] = useState<number>(0);
+    const [usedByItems, setUsedByItems] = useState<ReverseDependencyItem[]>([]);
+    const [usedByLoading, setUsedByLoading] = useState(false);
+    const [usedByPage, setUsedByPage] = useState(0);
+    const [usedByTotal, setUsedByTotal] = useState(0);
+    const [usedByExpanded, setUsedByExpanded] = useState(false);
+
+    // Badge state
+    const [copiedBadge, setCopiedBadge] = useState<string | null>(null);
+
     const currentVersion = selectedVersion || info.latestReleaseVersion || info.latestVersion;
+
+    // Fetch "Used By" count on mount
+    useEffect(() => {
+        fetchReverseDependencyCount(info.groupId, info.artifactId)
+            .then(setUsedByCount)
+            .catch(() => setUsedByCount(0));
+    }, [info.groupId, info.artifactId]);
+
+    // Fetch "Used By" items when expanded
+    useEffect(() => {
+        if (!usedByExpanded) return;
+        setUsedByLoading(true);
+        fetchReverseDependencies(info.groupId, info.artifactId, usedByPage, 10)
+            .then((result) => {
+                setUsedByItems(result.items);
+                setUsedByTotal(result.totalResults);
+            })
+            .catch(() => { })
+            .finally(() => setUsedByLoading(false));
+    }, [usedByExpanded, usedByPage, info.groupId, info.artifactId]);
 
     const copyToClipboard = (text: string, key: string) => {
         navigator.clipboard.writeText(text);
         setCopiedSnippet(key);
         setTimeout(() => setCopiedSnippet(null), 2000);
+    };
+
+    const copyBadgeCode = (text: string, key: string) => {
+        navigator.clipboard.writeText(text);
+        setCopiedBadge(key);
+        setTimeout(() => setCopiedBadge(null), 2000);
     };
 
     // Filter versions
@@ -58,6 +104,16 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
     });
 
     const displayVersions = showAllVersions ? filteredVersions : filteredVersions.slice(0, 10);
+
+    // Badge URLs — use relative /badge/ path which is proxied via Next.js rewrites
+    const badgeUrl = `/badge/${info.groupId}/${info.artifactId}`;
+    const artifactPageUrl = `https://modernmvn.com/artifact/${info.groupId}/${info.artifactId}`;
+
+    const badgeSnippets = {
+        markdown: `[![Maven Version](${badgeUrl})](${artifactPageUrl})`,
+        html: `<a href="${artifactPageUrl}"><img src="${badgeUrl}" alt="Maven Version" /></a>`,
+        rst: `.. image:: ${badgeUrl}\n   :target: ${artifactPageUrl}\n   :alt: Maven Version`,
+    };
 
     // JSON-LD structured data
     const jsonLd = {
@@ -97,17 +153,23 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                 {/* ── Hero Section ──────────────────────────────── */}
                 <div className="mb-10">
                     {/* Breadcrumb */}
-                    <nav className="text-sm text-gray-500 mb-4 flex items-center gap-1.5">
+                    <nav aria-label="Breadcrumb" className="text-sm text-gray-500 mb-4 flex items-center gap-1.5">
                         <Link href="/" className="hover:text-blue-400 transition-colors">Home</Link>
                         <span>/</span>
-                        <span className="text-gray-400">{info.groupId}</span>
+                        <Link href={`/artifact/${info.groupId}`} className="hover:text-violet-400 transition-colors font-mono">
+                            {info.groupId}
+                        </Link>
                         <span>/</span>
-                        <span className="text-white font-medium">{info.artifactId}</span>
-                        {selectedVersion && (
+                        {selectedVersion ? (
                             <>
+                                <Link href={`/artifact/${info.groupId}/${info.artifactId}`} className="hover:text-blue-400 transition-colors">
+                                    {info.artifactId}
+                                </Link>
                                 <span>/</span>
                                 <span className="text-blue-400 font-mono">{selectedVersion}</span>
                             </>
+                        ) : (
+                            <span className="text-white font-medium">{info.artifactId}</span>
                         )}
                     </nav>
 
@@ -154,6 +216,15 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                                         <Shield size={12} /> {info.licenses[0].name}
                                     </span>
                                 )}
+                                {/* Used By badge */}
+                                {usedByCount > 0 && (
+                                    <button
+                                        onClick={() => setUsedByExpanded(!usedByExpanded)}
+                                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-cyan-900/30 text-cyan-300 border border-cyan-800/50 hover:bg-cyan-900/50 transition-colors cursor-pointer"
+                                    >
+                                        <Users size={12} /> Used by {formatCount(usedByCount)}
+                                    </button>
+                                )}
                                 <SecurityBadge
                                     groupId={info.groupId}
                                     artifactId={info.artifactId}
@@ -189,7 +260,7 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                 {/* ── Main Content Grid ────────────────────────── */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-                    {/* LEFT: Snippets + Detail */}
+                    {/* LEFT: Snippets + Detail + Used By + Badges */}
                     <div className="lg:col-span-2 space-y-8">
 
                         {/* Dependency Snippets */}
@@ -265,12 +336,143 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                             </section>
                         )}
 
+                        {/* Used By Section */}
+                        {usedByExpanded && (
+                            <section className="rounded-xl border border-gray-800 bg-gray-950/50 overflow-hidden">
+                                <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+                                    <h2 className="font-bold text-lg flex items-center gap-2">
+                                        <Users size={18} className="text-cyan-400" />
+                                        Used By
+                                        {usedByTotal > 0 && (
+                                            <span className="text-gray-500 text-sm font-normal">
+                                                ({formatCount(usedByTotal)} artifacts)
+                                            </span>
+                                        )}
+                                    </h2>
+                                    <button
+                                        onClick={() => setUsedByExpanded(false)}
+                                        className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+
+                                {usedByLoading ? (
+                                    <div className="flex items-center justify-center py-12">
+                                        <Loader2 className="w-6 h-6 animate-spin text-gray-600" />
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="divide-y divide-gray-800/50">
+                                            {usedByItems.map((item, i) => (
+                                                <Link
+                                                    key={`ub-${i}`}
+                                                    href={`/artifact/${item.groupId}/${item.artifactId}`}
+                                                    className="flex items-center justify-between px-6 py-3 hover:bg-gray-800/40 transition-colors group"
+                                                >
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex items-center gap-2">
+                                                            <Package size={14} className="text-cyan-400 shrink-0" />
+                                                            <span className="text-sm font-medium text-gray-200 group-hover:text-cyan-300 transition-colors truncate">
+                                                                {item.artifactId}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-[11px] text-gray-600 font-mono truncate ml-6">{item.groupId}</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-3 shrink-0">
+                                                        {item.latestVersion && (
+                                                            <span className="text-[10px] font-mono text-gray-500">{item.latestVersion}</span>
+                                                        )}
+                                                        <ArrowRight size={12} className="text-gray-700 group-hover:text-cyan-400 transition-colors" />
+                                                    </div>
+                                                </Link>
+                                            ))}
+                                        </div>
+
+                                        {/* Pagination */}
+                                        {usedByTotal > 10 && (
+                                            <div className="px-6 py-3 border-t border-gray-800 flex items-center justify-between">
+                                                <button
+                                                    onClick={() => setUsedByPage(Math.max(0, usedByPage - 1))}
+                                                    disabled={usedByPage === 0}
+                                                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-800 border border-gray-700 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                >
+                                                    Previous
+                                                </button>
+                                                <span className="text-xs text-gray-500">
+                                                    Page {usedByPage + 1} of {Math.ceil(usedByTotal / 10)}
+                                                </span>
+                                                <button
+                                                    onClick={() => setUsedByPage(usedByPage + 1)}
+                                                    disabled={(usedByPage + 1) * 10 >= usedByTotal}
+                                                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-800 border border-gray-700 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                >
+                                                    Next
+                                                </button>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </section>
+                        )}
+
+                        {/* Badges Section */}
+                        <section className="rounded-xl border border-gray-800 bg-gray-950/50 overflow-hidden">
+                            <div className="px-6 py-4 border-b border-gray-800 flex items-center gap-2">
+                                <Image size={18} className="text-amber-400" />
+                                <h2 className="font-bold text-lg">Badges</h2>
+                            </div>
+                            <div className="p-6 space-y-5">
+                                {/* Badge preview */}
+                                <div className="flex items-center gap-4">
+                                    <span className="text-xs text-gray-500">Preview:</span>
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                        src={badgeUrl}
+                                        alt={`Maven version badge for ${info.artifactId}`}
+                                        className="h-5"
+                                    />
+                                </div>
+
+                                {/* Badge code snippets */}
+                                <div className="space-y-3">
+                                    {(Object.entries(badgeSnippets) as [string, string][]).map(([format, code]) => (
+                                        <div key={format}>
+                                            <div className="flex items-center justify-between mb-1">
+                                                <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">{format}</span>
+                                                <button
+                                                    onClick={() => copyBadgeCode(code, format)}
+                                                    className="text-xs text-gray-500 hover:text-white flex items-center gap-1 transition-colors"
+                                                >
+                                                    {copiedBadge === format ? (
+                                                        <><Check size={12} className="text-green-400" /> Copied</>
+                                                    ) : (
+                                                        <><Copy size={12} /> Copy</>
+                                                    )}
+                                                </button>
+                                            </div>
+                                            <pre className="px-4 py-2.5 rounded-lg bg-gray-900 border border-gray-800 text-xs font-mono text-gray-400 overflow-x-auto whitespace-pre-wrap break-all">
+                                                {code}
+                                            </pre>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </section>
+
                         {/* Security & Version Intelligence */}
-                        <VulnerabilityPanel
-                            groupId={info.groupId}
-                            artifactId={info.artifactId}
-                            version={currentVersion}
-                        />
+                        <div className="space-y-6">
+                            <VulnerabilityPanel
+                                groupId={info.groupId}
+                                artifactId={info.artifactId}
+                                version={currentVersion}
+                            />
+
+                            <VulnerabilityTrendChart
+                                groupId={info.groupId}
+                                artifactId={info.artifactId}
+                            />
+                        </div>
                     </div>
 
                     {/* RIGHT: Versions List */}

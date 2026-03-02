@@ -37,6 +37,7 @@ public class MavenCentralService {
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final MavenResolutionService resolutionService;
+    private SecurityService securityService; // setter-injected to avoid circular dependency
 
     private static final String SEARCH_API = "https://search.maven.org/solrsearch/select";
     private static final String REPO_BASE = "https://repo1.maven.org/maven2";
@@ -54,6 +55,12 @@ public class MavenCentralService {
         this.resolutionService = resolutionService;
     }
 
+    /** Lazy setter to avoid circular dependency with SecurityService. */
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setSecurityService(SecurityService securityService) {
+        this.securityService = securityService;
+    }
+
     // ──────────────────────── Public API ────────────────────────
 
     /**
@@ -68,8 +75,8 @@ public class MavenCentralService {
             // 2. Fetch all versions via GAV core
             List<ArtifactVersion> versions = fetchAllVersions(groupId, artifactId);
 
-            // 3. Determine recommended version
-            String recommended = determineRecommendedVersion(versions);
+            // 3. Determine recommended version (security-aware)
+            String recommended = determineRecommendedVersion(groupId, artifactId, versions);
 
             // 4. Try to fetch POM for description/license
             String latestVersion = summaryDoc.has("latestVersion")
@@ -139,6 +146,48 @@ public class MavenCentralService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to fetch artifact detail for "
                     + groupId + ":" + artifactId + ":" + version + " — " + e.getMessage(), e);
+        }
+    }
+
+    // ──────────────────────── Group Browse ───────────────────────
+
+    /**
+     * List all artifacts under a given groupId.
+     * Uses Solr exact-match on the 'g' field: g:"com.example"
+     * Sorted by artifactId ascending for predictable ordering.
+     */
+    @Cacheable(value = "groupArtifacts", key = "#groupId + ':' + #page + ':' + #pageSize")
+    public SearchResult searchByGroup(String groupId, int page, int pageSize) {
+        try {
+            int start = page * pageSize;
+            String url = SEARCH_API
+                    + "?q=g:%22" + encode(groupId) + "%22"
+                    + "&rows=" + pageSize
+                    + "&start=" + start
+                    + "&sort=a+asc"
+                    + "&wt=json";
+
+            String body = httpGet(url);
+            JsonNode root = objectMapper.readTree(body);
+            JsonNode response = root.path("response");
+            int totalResults = response.path("numFound").asInt(0);
+            JsonNode docs = response.path("docs");
+
+            List<SearchResultItem> items = new ArrayList<>();
+            for (JsonNode doc : docs) {
+                items.add(new SearchResultItem(
+                        doc.path("g").asText(""),
+                        doc.path("a").asText(""),
+                        doc.path("latestVersion").asText(""),
+                        doc.path("p").asText("jar"),
+                        null,
+                        doc.path("timestamp").asLong(0),
+                        doc.path("versionCount").asLong(0)));
+            }
+
+            return new SearchResult(groupId, totalResults, page, pageSize, items);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to fetch artifacts for group '" + groupId + "': " + e.getMessage(), e);
         }
     }
 
@@ -261,6 +310,77 @@ public class MavenCentralService {
             }
         }
         return items;
+    }
+
+    // ──────────────────── Reverse Dependencies ───────────────────
+
+    /**
+     * Get artifacts that depend on the given artifact ("Used By").
+     * Uses Maven Central Solr dependency field: d:"groupId:artifactId".
+     */
+    @Cacheable(value = "reverseDeps", key = "#groupId + ':' + #artifactId + ':' + #page + ':' + #pageSize")
+    public SearchResult getReverseDependencies(String groupId, String artifactId, int page, int pageSize) {
+        try {
+            int start = page * pageSize;
+            String url = SEARCH_API + "?q=d:%22" + encode(groupId) + ":" + encode(artifactId)
+                    + "%22&rows=" + pageSize
+                    + "&start=" + start
+                    + "&wt=json";
+
+            String body = httpGet(url);
+            JsonNode root = objectMapper.readTree(body);
+            JsonNode response = root.path("response");
+            int totalResults = response.path("numFound").asInt(0);
+            JsonNode docs = response.path("docs");
+
+            List<SearchResultItem> items = new ArrayList<>();
+            for (JsonNode doc : docs) {
+                items.add(new SearchResultItem(
+                        doc.path("g").asText(""),
+                        doc.path("a").asText(""),
+                        doc.path("latestVersion").asText(""),
+                        doc.path("p").asText("jar"),
+                        null,
+                        doc.path("timestamp").asLong(0),
+                        doc.path("versionCount").asLong(0)));
+            }
+
+            return new SearchResult(groupId + ":" + artifactId, totalResults, page, pageSize, items);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to fetch reverse dependencies for "
+                    + groupId + ":" + artifactId + " — " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Get the count of artifacts that depend on the given artifact.
+     * Uses rows=0 for efficiency — only returns numFound.
+     */
+    @Cacheable(value = "reverseDepsCount", key = "#groupId + ':' + #artifactId")
+    public int getReverseDependencyCount(String groupId, String artifactId) {
+        try {
+            String url = SEARCH_API + "?q=d:%22" + encode(groupId) + ":" + encode(artifactId)
+                    + "%22&rows=0&wt=json";
+
+            String body = httpGet(url);
+            JsonNode root = objectMapper.readTree(body);
+            return root.path("response").path("numFound").asInt(0);
+        } catch (Exception e) {
+            return 0; // Gracefully return 0 on failure
+        }
+    }
+
+    /**
+     * Get the latest version string for badge rendering.
+     */
+    @Cacheable(value = "artifactLatestVersion", key = "#groupId + ':' + #artifactId")
+    public String getLatestVersion(String groupId, String artifactId) {
+        try {
+            JsonNode doc = fetchSolrDoc(groupId, artifactId);
+            return doc.path("latestVersion").asText("");
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     /**
@@ -386,16 +506,75 @@ public class MavenCentralService {
     // ────────────────── Recommended version logic ────────────────
 
     /**
-     * Determines the recommended version: latest stable release
-     * (non-SNAPSHOT, non-alpha, non-beta, non-RC, non-milestone).
+     * Security-aware recommended version selection:
+     * 1. Group stable releases by major version (e.g. 3.x, 2.x, 1.x).
+     * 2. For each major line (newest first), find the latest minor/patch.
+     * 3. Skip any version with CRITICAL or HIGH CVEs (use OSV data if security
+     * service is ready).
+     * 4. Return the first safe major-line candidate, or fall back to latest stable.
      */
-    private String determineRecommendedVersion(List<ArtifactVersion> versions) {
-        // Versions are sorted desc by timestamp
-        return versions.stream()
+    String determineRecommendedVersion(String groupId, String artifactId, List<ArtifactVersion> versions) {
+        List<ArtifactVersion> stableReleases = versions.stream()
                 .filter(ArtifactVersion::isRelease)
-                .map(ArtifactVersion::version)
-                .findFirst()
-                .orElse(versions.isEmpty() ? null : versions.get(0).version());
+                .collect(Collectors.toList());
+
+        if (stableReleases.isEmpty()) {
+            return versions.isEmpty() ? null : versions.get(0).version();
+        }
+
+        // Group by major version number (first numeric segment)
+        Map<Integer, List<ArtifactVersion>> byMajor = new LinkedHashMap<>();
+        for (ArtifactVersion v : stableReleases) {
+            int major = parseMajorVersion(v.version());
+            byMajor.computeIfAbsent(major, k -> new ArrayList<>()).add(v);
+        }
+
+        // Sort major lines descending (latest major first)
+        List<Integer> sortedMajors = byMajor.keySet().stream()
+                .sorted(Comparator.reverseOrder())
+                .collect(Collectors.toList());
+
+        // For each major line, pick the latest version and check for CVEs
+        for (int major : sortedMajors) {
+            // Versions within a major line are already sorted desc by timestamp
+            ArtifactVersion candidate = byMajor.get(major).get(0);
+            if (isVersionSafe(groupId, artifactId, candidate.version())) {
+                return candidate.version();
+            }
+        }
+
+        // All candidates have issues — fall back to latest stable
+        return stableReleases.get(0).version();
+    }
+
+    /**
+     * Check whether a version is free of CRITICAL/HIGH CVEs.
+     * Returns true (safe) if security service is unavailable or the check passes.
+     */
+    private boolean isVersionSafe(String groupId, String artifactId, String version) {
+        if (securityService == null || groupId == null || groupId.isEmpty())
+            return true;
+        try {
+            var report = securityService.getVulnerabilities(groupId, artifactId, version);
+            return report.criticalCount() == 0 && report.highCount() == 0;
+        } catch (Exception e) {
+            return true; // graceful — never block due to security check failure
+        }
+    }
+
+    /**
+     * Parse the leading major version integer from a semantic version string.
+     * e.g. "3.5.3" → 3, "1.0.0.RELEASE" → 1, "0.9" → 0
+     */
+    private int parseMajorVersion(String version) {
+        if (version == null || version.isEmpty())
+            return 0;
+        String[] parts = version.split("[.\\-]");
+        try {
+            return Integer.parseInt(parts[0]);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     // ────────────────── Dependency snippets ──────────────────────
@@ -457,7 +636,7 @@ public class MavenCentralService {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("User-Agent", "modernmvn/1.0")
-                .timeout(Duration.ofSeconds(10))
+                .timeout(Duration.ofSeconds(30))
                 .GET()
                 .build();
 
