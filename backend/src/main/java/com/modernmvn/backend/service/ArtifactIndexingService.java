@@ -92,13 +92,18 @@ public class ArtifactIndexingService {
 
     // ──────────────────────── Main Entry Point ────────────────────────
 
-    @Transactional
+    /**
+     * Ensures an artifact version is indexed.
+     * Refactored to perform network calls outside database transactions to prevent
+     * connection pool exhaustion.
+     */
     public ArtifactVersionEntity ensureIndexed(String groupId, String artifactId, String version) {
         Timer.Sample sample = Timer.start(meterRegistry);
-        try {
-            // 1. Check if already completely indexed
-            Optional<ArtifactVersionEntity> current = versionRepository.findByGav(groupId, artifactId, version);
+        String lockKey = String.format("index:%s:%s:%s", groupId, artifactId, version);
 
+        try {
+            // 1. Check if already completely indexed (Read-only check)
+            Optional<ArtifactVersionEntity> current = versionRepository.findByGav(groupId, artifactId, version);
             if (current.isPresent()) {
                 ArtifactVersionEntity av = current.get();
                 if ("COMPLETE".equals(av.getIndexingStatus())) {
@@ -109,58 +114,54 @@ public class ArtifactIndexingService {
                 }
             }
 
-            // 2. Resolve/Insert root version shell
-            ArtifactVersionEntity av = getOrCreateVersionShell(groupId, artifactId, version);
-
-            // 3. Mark as INDEXING
-            av.setIndexingStatus("INDEXING");
-            versionRepository.saveAndFlush(av);
-
-            log.info("Starting indexing for {}:{}:{}", groupId, artifactId, version);
-
-            // 4. Build Dependency Graph (Aether)
-            DependencyNode root = resolutionService.resolveDependency(groupId, artifactId, version);
-            av.setDependencyCount(countTotalDependencies(root));
-
-            // 5. Clear old edges and re-populate
-            edgeRepository.deleteByRootVersionId(av.getId());
-            saveDependencyEdges(av, root);
-
-            // 6. Extract flat list of GAVs for security scanning
-            Set<GAV> uniqueGavs = new HashSet<>();
-            extractGavs(root, uniqueGavs);
-
-            // 7. OSV Lookup and Vulnerability persistence
-            for (GAV gav : uniqueGavs) {
-                try {
-                    List<SecurityAdvisory> advisories = securityService.queryOsvPublic(gav.groupId(), gav.artifactId(),
-                            gav.version());
-                    // Find or create version for the dependency so we can link it
-                    ArtifactVersionEntity depAv = getOrCreateVersionShell(gav.groupId(), gav.artifactId(),
-                            gav.version());
-                    saveAdvisories(depAv, advisories);
-                } catch (Exception e) {
-                    meterRegistry.counter("osv_call.failure").increment();
-                    log.warn("Failed to fetch vulnerabilities for {}: {}", gav, e.getMessage());
-                }
+            // 2. Acquire non-blocking distributed lock to prevent concurrent indexing
+            if (!distributedLockRepository.tryLock(lockKey)) {
+                log.info("Indexing for {} already in progress by another instance", lockKey);
+                return current.orElseGet(() -> self.getOrCreateVersionShellIndependent(groupId, artifactId, version));
             }
 
-            // 8. Finalize
-            av.setIndexingStatus("COMPLETE");
-            av.setLastIndexedAt(Instant.now());
-            av.setErrorMessage(null);
+            try {
+                // 3. Mark as INDEXING in a small independent transaction
+                ArtifactVersionEntity av = self.markAsIndexing(groupId, artifactId, version);
+                log.info("Starting indexing for {}:{}:{}", groupId, artifactId, version);
 
-            // 9. Update precomputed Security Summary
-            Timer.Sample summarySample = Timer.start(meterRegistry);
-            buildAndSaveSecuritySummary(av);
-            summarySample.stop(Timer.builder("security_summary_build_time")
-                    .description("Time taken to build security summary")
-                    .register(meterRegistry));
+                // 4. Heavy Lifting (Network Calls) - OUTSIDE transaction
+                // Build Dependency Graph
+                DependencyNode root = resolutionService.resolveDependency(groupId, artifactId, version);
 
-            return versionRepository.save(av);
+                // Extract flat list of GAVs and fetch vulnerabilities
+                Set<GAV> uniqueGavs = new HashSet<>();
+                extractGavs(root, uniqueGavs);
+
+                Map<GAV, List<SecurityAdvisory>> scanResults = new HashMap<>();
+                for (GAV gav : uniqueGavs) {
+                    try {
+                        List<SecurityAdvisory> advisories = securityService.queryOsvPublic(gav.groupId(),
+                                gav.artifactId(), gav.version());
+                        scanResults.put(gav, advisories);
+                    } catch (Exception e) {
+                        meterRegistry.counter("osv_call.failure").increment();
+                        log.warn("Failed to fetch vulnerabilities for {}: {}", gav, e.getMessage());
+                    }
+                }
+
+                // 5. Build results package
+                IndexingResult result = new IndexingResult(root, scanResults);
+
+                // 6. Persistence - INSIDE a controlled transaction
+                return self.persistIndexingResults(av.getId(), result);
+
+            } finally {
+                distributedLockRepository.unlock(lockKey);
+            }
         } catch (Exception e) {
             log.error("Indexing failed for {}:{}:{}: {}", groupId, artifactId, version, e.getMessage());
             meterRegistry.counter("indexing.failure").increment();
+            // Record error state in DB if possible
+            try {
+                self.recordIndexingError(groupId, artifactId, version, e.getMessage());
+            } catch (Exception ignored) {
+            }
             throw new RuntimeException("Indexing failed", e);
         } finally {
             sample.stop(Timer.builder("indexing_duration")
@@ -169,6 +170,67 @@ public class ArtifactIndexingService {
         }
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public ArtifactVersionEntity getOrCreateVersionShellIndependent(String groupId, String artifactId, String version) {
+        return getOrCreateVersionShell(groupId, artifactId, version);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public ArtifactVersionEntity markAsIndexing(String groupId, String artifactId, String version) {
+        ArtifactVersionEntity av = getOrCreateVersionShell(groupId, artifactId, version);
+        av.setIndexingStatus("INDEXING");
+        return versionRepository.saveAndFlush(av);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordIndexingError(String groupId, String artifactId, String version, String error) {
+        versionRepository.findByGav(groupId, artifactId, version).ifPresent(av -> {
+            av.setIndexingStatus("FAILED");
+            av.setErrorMessage(error != null && error.length() > 1000 ? error.substring(0, 997) + "..." : error);
+            versionRepository.save(av);
+        });
+    }
+
+    @Transactional
+    public ArtifactVersionEntity persistIndexingResults(Long versionId, IndexingResult result) {
+        @SuppressWarnings("null")
+        ArtifactVersionEntity av = versionRepository.findById(versionId)
+                .orElseThrow(() -> new IllegalStateException("Version lost during indexing: " + versionId));
+
+        DependencyNode root = result.root();
+        av.setDependencyCount(countTotalDependencies(root));
+
+        // Delete old edges
+        edgeRepository.deleteByRootVersionId(av.getId());
+
+        // Save new edges
+        List<DependencyEdgeEntity> edges = new ArrayList<>();
+        traverseAndCollectEdges(av, root, 0, edges, new HashSet<>());
+        edgeRepository.saveAll(edges);
+
+        // Save advisories
+        for (Map.Entry<GAV, List<SecurityAdvisory>> entry : result.scanResults().entrySet()) {
+            GAV gav = entry.getKey();
+            ArtifactVersionEntity depAv = getOrCreateVersionShell(gav.groupId(), gav.artifactId(), gav.version());
+            saveAdvisories(depAv, entry.getValue());
+        }
+
+        // Finalize version
+        av.setIndexingStatus("COMPLETE");
+        av.setLastIndexedAt(Instant.now());
+        av.setErrorMessage(null);
+
+        // Build summary
+        Timer.Sample summarySample = Timer.start(meterRegistry);
+        buildAndSaveSecuritySummary(av);
+        summarySample.stop(Timer.builder("security_summary_build_time")
+                .description("Time taken to build security summary")
+                .register(meterRegistry));
+
+        return versionRepository.save(av);
+    }
+
+    @SuppressWarnings("null")
     private ArtifactVersionEntity getOrCreateVersionShell(String groupId, String artifactId, String version) {
         ArtifactEntity artifact = artifactRepository.findByGroupIdAndArtifactId(groupId, artifactId)
                 .orElseGet(() -> artifactRepository.save(new ArtifactEntity(groupId, artifactId)));
@@ -237,14 +299,21 @@ public class ArtifactIndexingService {
         SecuritySummaryEntity summary = summaryRepository.findById(av.getId())
                 .orElse(new SecuritySummaryEntity(av.getId()));
 
+        if (counts != null) {
+            summary.setCriticalCount(counts.getCritical());
+            summary.setHighCount(counts.getHigh());
+            summary.setMediumCount(counts.getMedium());
+            summary.setLowCount(counts.getLow());
+        } else {
+            summary.setCriticalCount(0);
+            summary.setHighCount(0);
+            summary.setMediumCount(0);
+            summary.setLowCount(0);
+        }
+
         summary.setDirectVulns((int) directCount);
         summary.setTransitiveVulns((int) transitiveCount);
         summary.setTotalVulns((int) (directCount + transitiveCount));
-
-        summary.setCriticalCount(counts.getCritical());
-        summary.setHighCount(counts.getHigh());
-        summary.setMediumCount(counts.getMedium());
-        summary.setLowCount(counts.getLow());
 
         Double maxCvss = summaryRepository.getMaxCvss(av.getId());
         summary.setMaxCvss(maxCvss != null ? maxCvss : -1.0);
@@ -279,12 +348,6 @@ public class ArtifactIndexingService {
 
     // ──────────────────────── Helpers ───────────────────────────────
 
-    private void saveDependencyEdges(ArtifactVersionEntity av, DependencyNode root) {
-        List<DependencyEdgeEntity> edges = new ArrayList<>();
-        traverseAndCollectEdges(av, root, 0, edges, new HashSet<>());
-        edgeRepository.saveAll(edges);
-    }
-
     private void traverseAndCollectEdges(ArtifactVersionEntity av, DependencyNode node, int depth,
             List<DependencyEdgeEntity> edges, Set<String> seen) {
         String key = node.groupId() + ":" + node.artifactId() + ":" + node.version();
@@ -307,8 +370,9 @@ public class ArtifactIndexingService {
             VulnerabilityEntity v = vulnerabilityRepository.findByCveId(adv.id())
                     .orElseGet(() -> vulnerabilityRepository.save(VulnerabilityEntity.fromDto(adv)));
 
-            if (artifactVulnRepository.findByArtifactVersionId(av.getId()).stream()
-                    .noneMatch(existing -> existing.getVulnerabilityId().equals(v.getId()))) {
+            List<ArtifactVulnerabilityEntity> existingVulns = artifactVulnRepository
+                    .findByArtifactVersionId(av.getId());
+            if (existingVulns.stream().noneMatch(ev -> ev.getVulnerabilityId().equals(v.getId()))) {
                 artifactVulnRepository.save(new ArtifactVulnerabilityEntity(av.getId(), v.getId()));
             }
         }
@@ -354,5 +418,8 @@ public class ArtifactIndexingService {
     }
 
     private record GAV(String groupId, String artifactId, String version) {
+    }
+
+    private record IndexingResult(DependencyNode root, Map<GAV, List<SecurityAdvisory>> scanResults) {
     }
 }

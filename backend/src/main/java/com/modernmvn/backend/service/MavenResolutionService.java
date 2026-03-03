@@ -1,5 +1,6 @@
 package com.modernmvn.backend.service;
 
+import com.modernmvn.backend.config.MavenConfig;
 import com.modernmvn.backend.dto.DependencyNode;
 import com.modernmvn.backend.dto.MultiModuleResult;
 
@@ -13,6 +14,9 @@ import org.eclipse.aether.collection.CollectRequest;
 import org.eclipse.aether.collection.CollectResult;
 import org.eclipse.aether.graph.Dependency;
 import org.eclipse.aether.repository.RemoteRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.io.StringReader;
@@ -21,8 +25,10 @@ import java.util.*;
 @Service
 public class MavenResolutionService {
 
+    private static final Logger log = LoggerFactory.getLogger(MavenResolutionService.class);
+
     private final RepositorySystem repositorySystem;
-    private final RepositorySystemSession repositorySystemSession;
+    private final MavenConfig mavenConfig;
 
     // Limits for security
     private static final int MAX_POM_SIZE_BYTES = 512 * 1024; // 512 KB
@@ -30,12 +36,12 @@ public class MavenResolutionService {
     private static final int MAX_RESOLUTION_DEPTH = 10;
     private static final Set<String> ALLOWED_REPO_SCHEMES = Set.of("https");
 
-    public MavenResolutionService(RepositorySystem repositorySystem, RepositorySystemSession repositorySystemSession) {
+    public MavenResolutionService(RepositorySystem repositorySystem, MavenConfig mavenConfig) {
         this.repositorySystem = repositorySystem;
-        this.repositorySystemSession = repositorySystemSession;
+        this.mavenConfig = mavenConfig;
     }
 
-    @org.springframework.cache.annotation.Cacheable(value = "mavenDependencies", key = "#groupId + ':' + #artifactId + ':' + #version")
+    @Cacheable(value = "mavenDependencies_v2", key = "#groupId + ':' + #artifactId + ':' + #version")
     public DependencyNode resolveDependency(String groupId, String artifactId, String version) {
         return resolveDependencyWithRepos(groupId, artifactId, version, List.of());
     }
@@ -52,20 +58,28 @@ public class MavenResolutionService {
             collectRequest.setRoot(dependency);
             collectRequest.setRepositories(repos);
 
-            CollectResult collectResult = repositorySystem.collectDependencies(repositorySystemSession, collectRequest);
+            // Create a fresh session for this resolution to ensure thread safety
+            RepositorySystemSession session = mavenConfig.createSession(repositorySystem);
+            CollectResult collectResult = repositorySystem.collectDependencies(session, collectRequest);
 
             if (!collectResult.getExceptions().isEmpty()) {
-                System.out.println("Resolution exceptions for " + groupId + ":" + artifactId + ":" + version);
+                log.warn("Resolution exceptions for {}:{}:{}", groupId, artifactId, version);
                 for (Exception e : collectResult.getExceptions()) {
-                    e.printStackTrace();
+                    log.debug("Resolution detail: ", e);
                 }
             }
 
             return convertToDto(collectResult.getRoot(), 0);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Failed to resolve {}:{}:{}: {}", groupId, artifactId, version, e.getMessage(), e);
+            String errorMsg = e.getClass().getSimpleName();
+            if (e.getMessage() != null)
+                errorMsg += ": " + e.getMessage();
+            if (e.getCause() != null)
+                errorMsg += " (Cause: " + e.getCause().getClass().getSimpleName() + ")";
+
             return new DependencyNode(groupId, artifactId, version, "compile", "jar", Collections.emptyList(), "ERROR",
-                    e.getMessage());
+                    errorMsg);
         }
     }
 
@@ -80,22 +94,14 @@ public class MavenResolutionService {
             Model model = reader.read(new StringReader(pomContent));
             return resolveModelAsTree(model, customRepoUrls);
         } catch (IllegalArgumentException e) {
-            throw e; // Re-throw validation errors
+            throw e;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Failed to resolve from POM: {}", e.getMessage());
             return new DependencyNode("unknown", "unknown", "0.0.0", "compile", "pom", Collections.emptyList(),
                     "ERROR", e.getMessage());
         }
     }
 
-    /**
-     * Analyze a POM for multi-module structure and resolve each module's
-     * dependencies.
-     * Modules listed in the parent POM's <modules> block are "detected" but since
-     * we only receive
-     * the parent POM text, child module POMs aren't available. We mark them as
-     * LOCAL artifacts.
-     */
     public MultiModuleResult resolveMultiModule(String pomContent, List<String> customRepoUrls) {
         validatePomSize(pomContent);
         try {
@@ -110,7 +116,6 @@ public class MavenResolutionService {
             boolean isMultiModule = moduleNames != null && !moduleNames.isEmpty();
 
             if (!isMultiModule) {
-                // Single module — resolve normally
                 DependencyNode tree = resolveModelAsTree(model, customRepoUrls);
                 MultiModuleResult.ModuleInfo singleModule = new MultiModuleResult.ModuleInfo(
                         parentArtifactId, parentGroupId, parentArtifactId, parentVersion,
@@ -120,19 +125,18 @@ public class MavenResolutionService {
                         false, List.of(singleModule), tree);
             }
 
-            // Multi-module: create ModuleInfo for each declared module
             List<MultiModuleResult.ModuleInfo> modules = new ArrayList<>();
             List<DependencyNode> allModuleChildren = new ArrayList<>();
 
-            // Also resolve the parent's own dependencies (if any)
             DependencyNode parentTree = resolveModelAsTree(model, customRepoUrls);
 
+            if (moduleNames == null)
+                return null; // Safe guard for linter
             for (String moduleName : moduleNames) {
-                // We don't have the child POM content, so we create a LOCAL placeholder
                 DependencyNode localModuleNode = new DependencyNode(
                         parentGroupId, moduleName, parentVersion,
                         "compile", "jar", Collections.emptyList(),
-                        "LOCAL", "Module detected from parent POM. Upload individual module POM for full analysis.");
+                        "LOCAL", "Module detected from parent POM.");
 
                 MultiModuleResult.ModuleInfo moduleInfo = new MultiModuleResult.ModuleInfo(
                         moduleName, parentGroupId, moduleName, parentVersion, "jar", localModuleNode);
@@ -140,7 +144,6 @@ public class MavenResolutionService {
                 allModuleChildren.add(localModuleNode);
             }
 
-            // Merge: parent tree children + local module nodes
             List<DependencyNode> mergedChildren = new ArrayList<>(parentTree.children());
             mergedChildren.addAll(allModuleChildren);
 
@@ -155,7 +158,7 @@ public class MavenResolutionService {
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Failed to resolve multi-module POM: {}", e.getMessage());
             DependencyNode errorNode = new DependencyNode("unknown", "unknown", "0.0.0", "compile", "pom",
                     Collections.emptyList(), "ERROR", e.getMessage());
             return new MultiModuleResult("unknown", "unknown", "0.0.0", false, List.of(), errorNode);
@@ -185,7 +188,6 @@ public class MavenResolutionService {
             String dVersion = interpolate(d.getVersion(), properties);
             String dScope = d.getScope() != null ? d.getScope() : "compile";
 
-            // Skip local module references — they won't exist in remote repos
             if (localModuleArtifacts.contains(dGroupId + ":" + dArtifactId)) {
                 continue;
             }
@@ -209,7 +211,8 @@ public class MavenResolutionService {
             collectRequest.setDependencies(dependencies);
             collectRequest.setRepositories(repos);
 
-            CollectResult collectResult = repositorySystem.collectDependencies(repositorySystemSession, collectRequest);
+            RepositorySystemSession session = mavenConfig.createSession(repositorySystem);
+            CollectResult collectResult = repositorySystem.collectDependencies(session, collectRequest);
 
             List<DependencyNode> children = new ArrayList<>();
             for (org.eclipse.aether.graph.DependencyNode child : collectResult.getRoot().getChildren()) {
@@ -218,7 +221,8 @@ public class MavenResolutionService {
 
             return new DependencyNode(groupId, artifactId, version, "compile", "pom", children, "RESOLVED", null);
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Internal model resolution failed for {}:{}:{}: {}", groupId, artifactId, version,
+                    e.getMessage());
             return new DependencyNode(groupId, artifactId, version, "compile", "pom", Collections.emptyList(), "ERROR",
                     e.getMessage());
         }
@@ -234,7 +238,7 @@ public class MavenResolutionService {
         }
     }
 
-    List<RemoteRepository> buildRepositoryList(List<String> customRepoUrls) {
+    private List<RemoteRepository> buildRepositoryList(List<String> customRepoUrls) {
         List<RemoteRepository> repos = new ArrayList<>();
         repos.add(new RemoteRepository.Builder("central", "default",
                 "https://repo.maven.apache.org/maven2/").build());
@@ -259,17 +263,13 @@ public class MavenResolutionService {
             java.net.URI uri = java.net.URI.create(url.trim());
             String scheme = uri.getScheme();
             if (scheme == null || !ALLOWED_REPO_SCHEMES.contains(scheme.toLowerCase())) {
-                throw new IllegalArgumentException(
-                        "Repository URL must use HTTPS. Got: " + url);
+                throw new IllegalArgumentException("Repository URL must use HTTPS. Got: " + url);
             }
             if (uri.getHost() == null || uri.getHost().isBlank()) {
                 throw new IllegalArgumentException("Invalid repository URL: " + url);
             }
         } catch (IllegalArgumentException e) {
-            if (e.getMessage().startsWith("Repository URL") || e.getMessage().startsWith("Invalid repository")) {
-                throw e;
-            }
-            throw new IllegalArgumentException("Invalid repository URL format: " + url);
+            throw e;
         }
     }
 
@@ -323,8 +323,7 @@ public class MavenResolutionService {
             }
         }
 
-        Artifact artifact = aetherNode.getArtifact();
-
+        org.eclipse.aether.artifact.Artifact artifact = aetherNode.getArtifact();
         String resolutionStatus = "RESOLVED";
         String conflictMessage = null;
 
@@ -341,10 +340,8 @@ public class MavenResolutionService {
             }
         } else {
             String scope = aetherNode.getDependency() != null ? aetherNode.getDependency().getScope() : "compile";
-            if ("test".equals(scope) || "provided".equals(scope)) {
-                if (aetherNode.getDependency() != null && aetherNode.getDependency().isOptional()) {
-                    resolutionStatus = "OPTIONAL";
-                }
+            if (("test".equals(scope) || "provided".equals(scope)) && aetherNode.getDependency().isOptional()) {
+                resolutionStatus = "OPTIONAL";
             }
         }
 

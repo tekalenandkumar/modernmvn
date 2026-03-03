@@ -27,16 +27,16 @@ public interface SecuritySummaryRepository extends JpaRepository<SecuritySummary
                         @Param("v") String version);
 
         @Query("SELECT " +
-                        "SUM(CASE WHEN v.severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical, " +
-                        "SUM(CASE WHEN v.severity = 'HIGH' THEN 1 ELSE 0 END) as high, " +
-                        "SUM(CASE WHEN v.severity = 'MEDIUM' THEN 1 ELSE 0 END) as medium, " +
-                        "SUM(CASE WHEN v.severity = 'LOW' THEN 1 ELSE 0 END) as low " +
+                        "COALESCE(SUM(CASE WHEN v.severity = 'CRITICAL' THEN 1 ELSE 0 END), 0) as critical, " +
+                        "COALESCE(SUM(CASE WHEN v.severity = 'HIGH' THEN 1 ELSE 0 END), 0) as high, " +
+                        "COALESCE(SUM(CASE WHEN v.severity = 'MEDIUM' THEN 1 ELSE 0 END), 0) as medium, " +
+                        "COALESCE(SUM(CASE WHEN v.severity = 'LOW' THEN 1 ELSE 0 END), 0) as low " +
                         "FROM ArtifactVulnerabilityEntity av " +
                         "JOIN VulnerabilityEntity v ON av.vulnerabilityId = v.id " +
                         "WHERE av.artifactVersionId = :id")
         SeverityCounts getSeverityCounts(@Param("id") Long artifactVersionId);
 
-        @Query("SELECT MAX(v.cvssScore) FROM ArtifactVulnerabilityEntity av " +
+        @Query("SELECT COALESCE(MAX(v.cvssScore), -1.0) FROM ArtifactVulnerabilityEntity av " +
                         "JOIN VulnerabilityEntity v ON av.vulnerabilityId = v.id " +
                         "WHERE av.artifactVersionId = :id")
         Double getMaxCvss(@Param("id") Long artifactVersionId);

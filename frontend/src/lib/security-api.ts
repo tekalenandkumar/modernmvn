@@ -31,7 +31,7 @@ export interface VulnerabilityReport {
     disclaimer: string;
 }
 
-export type SafetyIndicator = 'SAFE' | 'CAUTION' | 'WARNING' | 'DANGER';
+export type SafetyIndicator = 'SAFE' | 'CAUTION' | 'WARNING' | 'DANGER' | 'UNKNOWN';
 export type StabilityGrade = 'STABLE' | 'RECENT' | 'PRE_RELEASE' | 'OUTDATED' | 'UNKNOWN';
 
 export interface VersionAssessment {
@@ -131,6 +131,8 @@ export function safetyColor(indicator: SafetyIndicator): string {
         case 'CAUTION': return '#ffa502';
         case 'WARNING': return '#ff6348';
         case 'DANGER': return '#ff4757';
+        case 'UNKNOWN': return '#747d8c';
+        default: return '#747d8c';
     }
 }
 
@@ -140,6 +142,8 @@ export function safetyBgColor(indicator: SafetyIndicator): string {
         case 'CAUTION': return 'rgba(255, 165, 2, 0.12)';
         case 'WARNING': return 'rgba(255, 99, 72, 0.12)';
         case 'DANGER': return 'rgba(255, 71, 87, 0.15)';
+        case 'UNKNOWN': return 'rgba(116, 125, 140, 0.12)';
+        default: return 'rgba(116, 125, 140, 0.12)';
     }
 }
 
@@ -149,6 +153,8 @@ export function safetyIcon(indicator: SafetyIndicator): string {
         case 'CAUTION': return '⚠';
         case 'WARNING': return '⚠';
         case 'DANGER': return '✕';
+        case 'UNKNOWN': return '…';
+        default: return '…';
     }
 }
 

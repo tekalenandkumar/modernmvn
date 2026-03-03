@@ -117,5 +117,6 @@ function getIcon(indicator: SafetyIndicator) {
         case 'CAUTION': return ShieldAlert;
         case 'WARNING': return ShieldAlert;
         case 'DANGER': return ShieldX;
+        case 'UNKNOWN': return Shield;
     }
 }

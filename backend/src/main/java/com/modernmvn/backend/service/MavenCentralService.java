@@ -6,7 +6,6 @@ import com.modernmvn.backend.dto.ArtifactDetail;
 import com.modernmvn.backend.dto.ArtifactInfo;
 import com.modernmvn.backend.dto.ArtifactInfo.LicenseInfo;
 import com.modernmvn.backend.dto.ArtifactVersion;
-import com.modernmvn.backend.dto.DependencyNode;
 import com.modernmvn.backend.dto.SearchResult;
 import com.modernmvn.backend.dto.SearchResult.SearchResultItem;
 
@@ -16,7 +15,6 @@ import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
-import java.io.InputStream;
 import java.io.StringReader;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -36,8 +34,6 @@ public class MavenCentralService {
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
-    private final MavenResolutionService resolutionService;
-    private SecurityService securityService; // setter-injected to avoid circular dependency
     private ArtifactIndexingService indexingService; // setter-injected to avoid circular dependency
 
     private static final String SEARCH_API = "https://search.maven.org/solrsearch/select";
@@ -47,19 +43,12 @@ public class MavenCentralService {
     private static final Pattern PRE_RELEASE_PATTERN = Pattern.compile(
             "(?i).*(alpha|beta|rc|cr|m\\d|snapshot|preview|dev|incubating|ea).*");
 
-    public MavenCentralService(MavenResolutionService resolutionService) {
+    public MavenCentralService() {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
         this.objectMapper = new ObjectMapper();
-        this.resolutionService = resolutionService;
-    }
-
-    /** Lazy setter to avoid circular dependency with SecurityService. */
-    @org.springframework.beans.factory.annotation.Autowired
-    public void setSecurityService(SecurityService securityService) {
-        this.securityService = securityService;
     }
 
     /** Lazy setter to avoid circular dependency with ArtifactIndexingService. */
@@ -633,16 +622,6 @@ public class MavenCentralService {
     }
 
     // ────────────────────── Helpers ──────────────────────────────
-
-    private int countDependencies(DependencyNode node) {
-        if (node == null || node.children() == null)
-            return 0;
-        int count = node.children().size();
-        for (DependencyNode child : node.children()) {
-            count += countDependencies(child);
-        }
-        return count;
-    }
 
     private String httpGet(String url) throws Exception {
         HttpRequest request = HttpRequest.newBuilder()

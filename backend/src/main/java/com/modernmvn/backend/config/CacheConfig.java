@@ -26,6 +26,7 @@ public class CacheConfig implements CachingConfigurer {
         private static final Logger log = LoggerFactory.getLogger(CacheConfig.class);
 
         @Bean
+        @SuppressWarnings("null")
         public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
                 RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
                                 .computePrefixWith(cacheName -> "modernmvn:" + cacheName + ":")
