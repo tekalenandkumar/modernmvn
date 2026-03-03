@@ -38,6 +38,7 @@ public class MavenCentralService {
     private final ObjectMapper objectMapper;
     private final MavenResolutionService resolutionService;
     private SecurityService securityService; // setter-injected to avoid circular dependency
+    private ArtifactIndexingService indexingService; // setter-injected to avoid circular dependency
 
     private static final String SEARCH_API = "https://search.maven.org/solrsearch/select";
     private static final String REPO_BASE = "https://repo1.maven.org/maven2";
@@ -59,6 +60,12 @@ public class MavenCentralService {
     @org.springframework.beans.factory.annotation.Autowired
     public void setSecurityService(SecurityService securityService) {
         this.securityService = securityService;
+    }
+
+    /** Lazy setter to avoid circular dependency with ArtifactIndexingService. */
+    @org.springframework.beans.factory.annotation.Autowired
+    public void setIndexingService(ArtifactIndexingService indexingService) {
+        this.indexingService = indexingService;
     }
 
     // ──────────────────────── Public API ────────────────────────
@@ -121,13 +128,18 @@ public class MavenCentralService {
             // Generate dependency snippets
             Map<String, String> snippets = generateDependencySnippets(groupId, artifactId, version);
 
-            // Resolve dependency count
+            // Resolve dependency count via indexing (DB-backed, Aether only on first hit)
             int depCount = 0;
             try {
-                DependencyNode tree = resolutionService.resolveDependency(groupId, artifactId, version);
-                depCount = countDependencies(tree);
+                if (indexingService != null) {
+                    indexingService.ensureIndexed(groupId, artifactId, version);
+                    depCount = indexingService.getDependencyCountFromDb(groupId, artifactId, version);
+
+                    // Fire-and-forget: index ALL versions in background
+                    indexingService.indexAllVersionsAsync(groupId, artifactId);
+                }
             } catch (Exception ignored) {
-                // Resolution may fail for some artifacts
+                // Indexing may fail for some artifacts — graceful degradation
             }
 
             // Get version timestamp from Solr
@@ -549,14 +561,14 @@ public class MavenCentralService {
 
     /**
      * Check whether a version is free of CRITICAL/HIGH CVEs.
-     * Returns true (safe) if security service is unavailable or the check passes.
+     * Reads from DB (precomputed by ArtifactIndexingService).
+     * Returns true (safe) if data is unavailable (graceful degradation).
      */
     private boolean isVersionSafe(String groupId, String artifactId, String version) {
-        if (securityService == null || groupId == null || groupId.isEmpty())
+        if (indexingService == null || groupId == null || groupId.isEmpty())
             return true;
         try {
-            var report = securityService.getVulnerabilities(groupId, artifactId, version);
-            return report.criticalCount() == 0 && report.highCount() == 0;
+            return indexingService.isVersionSafeFromDb(groupId, artifactId, version);
         } catch (Exception e) {
             return true; // graceful — never block due to security check failure
         }

@@ -5,14 +5,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.modernmvn.backend.dto.SecurityAdvisory;
 import com.modernmvn.backend.dto.SecurityAdvisory.Severity;
-import com.modernmvn.backend.dto.VersionIntelligence;
 import com.modernmvn.backend.dto.VersionIntelligence.*;
 import com.modernmvn.backend.dto.VulnerabilityReport;
-import com.modernmvn.backend.entity.VulnerabilityScan;
-import com.modernmvn.backend.repository.VulnerabilityScanRepository;
+import com.modernmvn.backend.entity.SecuritySummaryEntity;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.timelimiter.annotation.TimeLimiter;
+import java.util.concurrent.CompletableFuture;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -23,20 +28,24 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * Provides security vulnerability lookups via the OSV.dev API
  * and version stability scoring.
  *
  * OSV API docs: https://google.github.io/osv.dev/api/
+ *
+ * NOTE: getVulnerabilities() still calls OSV live (for backward compatibility
+ * with SecurityController). The ArtifactIndexingService uses queryOsvPublic()
+ * directly and persists results to the new schema.
  */
 @Service
 public class SecurityService {
 
+    private static final Logger log = LoggerFactory.getLogger(SecurityService.class);
+
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
-    private final VulnerabilityScanRepository scanRepository;
 
     // OSV.dev is free, no API key required
     private static final String OSV_QUERY_URL = "https://api.osv.dev/v1/query";
@@ -52,13 +61,21 @@ public class SecurityService {
     private static final long DAYS_RECENT = 90; // < 90 days = "recent"
     private static final long DAYS_OUTDATED = 1825; // > 5 years = "outdated"
 
-    public SecurityService(VulnerabilityScanRepository scanRepository) {
+    public SecurityService() {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
         this.objectMapper = new ObjectMapper();
-        this.scanRepository = scanRepository;
+    }
+
+    // Break circular dependency: ArtifactIndexingService → SecurityService →
+    // ArtifactIndexingService
+    private ArtifactIndexingService indexingService;
+
+    @Autowired
+    public void setIndexingService(@Lazy ArtifactIndexingService indexingService) {
+        this.indexingService = indexingService;
     }
 
     // ──────────────────────── Vulnerability Report ────────────────────────
@@ -69,7 +86,7 @@ public class SecurityService {
     @Cacheable(value = "vulnerabilities", key = "#groupId + ':' + #artifactId + ':' + #version")
     public VulnerabilityReport getVulnerabilities(String groupId, String artifactId, String version) {
         try {
-            List<SecurityAdvisory> advisories = queryOsv(groupId, artifactId, version);
+            List<SecurityAdvisory> advisories = queryOsvPublic(groupId, artifactId, version);
 
             // Enrich with NVD for real CVSS scores on CVE IDs
             advisories = enrichWithNvdCvss(advisories);
@@ -108,9 +125,6 @@ public class SecurityService {
                     advisories.size(), critical, high, medium, low,
                     highest, advisories, VulnerabilityReport.DISCLAIMER);
 
-            // Persist to DB (skip if already scanned within 24h)
-            persistScanResult(groupId, artifactId, version, report, maxCvss);
-
             return report;
 
         } catch (Exception e) {
@@ -119,26 +133,6 @@ public class SecurityService {
     }
 
     // ──────────────────────── Historical Trend ────────────────────────
-
-    /**
-     * Returns historical vulnerability counts for an artifact (all versions
-     * combined).
-     * Sourced from the PostgreSQL persistence layer.
-     * Returns data points sorted by scan date ascending.
-     */
-    public List<TrendPoint> getVulnerabilityTrend(String groupId, String artifactId, int days) {
-        Instant since = Instant.now().minus(days, ChronoUnit.DAYS);
-        List<VulnerabilityScan> scans = scanRepository.findTrendSince(groupId, artifactId, since);
-        return scans.stream()
-                .map(s -> new TrendPoint(
-                        s.getScannedAt().toString(),
-                        s.getVersion(),
-                        s.getTotalVulnerabilities(),
-                        s.getCriticalCount(),
-                        s.getHighCount(),
-                        s.getMaxCvssScore()))
-                .collect(Collectors.toList());
-    }
 
     /** A single trend data point (serialised to JSON). */
     public record TrendPoint(
@@ -159,8 +153,23 @@ public class SecurityService {
     public VersionAssessment assessVersion(
             String groupId, String artifactId,
             String version, boolean isRelease, long timestamp) {
-        // Get vulnerability count
-        VulnerabilityReport report = getVulnerabilities(groupId, artifactId, version);
+        // Try DB-backed data first (instant, no external calls)
+        VulnerabilityReport report = getVulnerabilityReportFromDb(groupId, artifactId, version);
+
+        // DB miss — trigger indexing, then re-read from DB
+        if (report == null && indexingService != null) {
+            try {
+                indexingService.ensureIndexed(groupId, artifactId, version);
+                report = getVulnerabilityReportFromDb(groupId, artifactId, version);
+            } catch (Exception e) {
+                // Indexing failed — fall through
+            }
+        }
+
+        // No DB data available — return clean report (no live OSV calls in hot path)
+        if (report == null) {
+            report = VulnerabilityReport.clean(groupId, artifactId, version);
+        }
 
         // Compute stability
         StabilityGrade stability = computeStabilityGrade(version, isRelease, timestamp);
@@ -175,6 +184,40 @@ public class SecurityService {
                 report.totalVulnerabilities(), report.highestSeverity(),
                 stability, stabilityScore,
                 safety, safetyLabel);
+    }
+
+    /**
+     * Build a VulnerabilityReport from DB-precomputed SecuritySummaryEntity.
+     * Returns null if not indexed yet.
+     */
+    private VulnerabilityReport getVulnerabilityReportFromDb(String groupId, String artifactId, String version) {
+        if (indexingService == null)
+            return null;
+        try {
+            Optional<SecuritySummaryEntity> opt = indexingService.getSecuritySummary(groupId, artifactId, version);
+            if (opt.isEmpty())
+                return null;
+
+            SecuritySummaryEntity s = opt.get();
+            Severity highest = null;
+            if (s.getCriticalCount() > 0)
+                highest = Severity.CRITICAL;
+            else if (s.getHighCount() > 0)
+                highest = Severity.HIGH;
+            else if (s.getMediumCount() > 0)
+                highest = Severity.MEDIUM;
+            else if (s.getLowCount() > 0)
+                highest = Severity.LOW;
+
+            return new VulnerabilityReport(
+                    groupId, artifactId, version,
+                    s.getTotalVulns(), s.getCriticalCount(), s.getHighCount(),
+                    s.getMediumCount(), s.getLowCount(),
+                    highest, List.of(), // No individual advisories needed for assessment
+                    VulnerabilityReport.DISCLAIMER);
+        } catch (Exception e) {
+            return null; // Fallback to live
+        }
     }
 
     // ──────────────────────── Stability Scoring ────────────────────────
@@ -275,8 +318,30 @@ public class SecurityService {
 
     /**
      * Query the OSV.dev API for vulnerabilities affecting a Maven package version.
+     * Protected by Resilience4j. If it fails or times out, returns empty list.
      */
-    private List<SecurityAdvisory> queryOsv(String groupId, String artifactId, String version) throws Exception {
+    @CircuitBreaker(name = "osv", fallbackMethod = "osvFallback")
+    @TimeLimiter(name = "osv", fallbackMethod = "osvFallbackFuture")
+    public CompletableFuture<List<SecurityAdvisory>> queryOsvPublicFuture(String groupId, String artifactId,
+            String version) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return queryOsvPublicInternal(groupId, artifactId, version);
+            } catch (Exception e) {
+                throw new RuntimeException("OSV API call failed", e);
+            }
+        });
+    }
+
+    /**
+     * Internal synchronous call wrapped by the Future for TimeLimiter access.
+     */
+    public List<SecurityAdvisory> queryOsvPublic(String groupId, String artifactId, String version) throws Exception {
+        return queryOsvPublicFuture(groupId, artifactId, version).join();
+    }
+
+    private List<SecurityAdvisory> queryOsvPublicInternal(String groupId, String artifactId, String version)
+            throws Exception {
         // Build request payload
         ObjectNode payload = objectMapper.createObjectNode();
         ObjectNode pkg = payload.putObject("package");
@@ -308,9 +373,22 @@ public class SecurityService {
             advisories.add(parseOsvVulnerability(vuln, version));
         }
 
-        // Sort by severity (critical first)
         advisories.sort(Comparator.comparingInt(a -> severityOrdinal(a.severity())));
         return advisories;
+    }
+
+    /**
+     * Fallback method when OSV CircuitBreaker is open or TimeLimiter is exceeded.
+     */
+    public CompletableFuture<List<SecurityAdvisory>> osvFallbackFuture(String groupId, String artifactId,
+            String version, Throwable t) {
+        log.warn("OSV API Circuit Breaker / Timeout fallback engaged for {}:{}:{}. Reason: {}", groupId, artifactId,
+                version, t.getMessage());
+        return CompletableFuture.completedFuture(List.of()); // Return empty list gracefully
+    }
+
+    public List<SecurityAdvisory> osvFallback(String groupId, String artifactId, String version, Throwable t) {
+        return osvFallbackFuture(groupId, artifactId, version, t).join();
     }
 
     /**
@@ -622,40 +700,4 @@ public class SecurityService {
         return Math.min(10.0, score);
     }
 
-    // ──────────────────────── DB Persistence ─────────────────────────
-
-    /**
-     * Persist a scan result to PostgreSQL. Skips if the same GAV was already
-     * scanned within the last 24 hours to avoid redundant writes.
-     */
-    private void persistScanResult(String groupId, String artifactId, String version,
-            VulnerabilityReport report, double maxCvss) {
-        try {
-            if (groupId == null || groupId.isEmpty() || artifactId == null || artifactId.isEmpty())
-                return;
-
-            Instant oneDayAgo = Instant.now().minus(24, ChronoUnit.HOURS);
-            boolean alreadyScanned = scanRepository
-                    .existsByGroupIdAndArtifactIdAndVersionAndScannedAtAfter(
-                            groupId, artifactId, version, oneDayAgo);
-            if (alreadyScanned)
-                return;
-
-            String highestSev = report.highestSeverity() != null
-                    ? report.highestSeverity().name()
-                    : null;
-
-            VulnerabilityScan scan = new VulnerabilityScan(
-                    groupId, artifactId, version,
-                    report.totalVulnerabilities(),
-                    report.criticalCount(), report.highCount(),
-                    report.mediumCount(), report.lowCount(),
-                    highestSev, maxCvss,
-                    "OSV+NVD");
-
-            scanRepository.save(scan);
-        } catch (Exception e) {
-            // Persistence failure must never affect the API response
-        }
-    }
 }

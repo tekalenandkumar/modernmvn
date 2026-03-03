@@ -8,8 +8,13 @@ import org.eclipse.aether.repository.LocalRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import org.springframework.beans.factory.annotation.Value;
+
 @Configuration
 public class MavenConfig {
+
+    @Value("${maven.local-repo:/var/modernmvn/local-repo}")
+    private String localRepoPath;
 
     @Bean
     public RepositorySystem repositorySystem() {
@@ -19,7 +24,7 @@ public class MavenConfig {
     @Bean
     public RepositorySystemSession repositorySystemSession(RepositorySystem repositorySystem) {
         DefaultRepositorySystemSession session = MavenRepositorySystemUtils.newSession();
-        LocalRepository localRepo = new LocalRepository("target/local-repo");
+        LocalRepository localRepo = new LocalRepository(localRepoPath);
         session.setLocalRepositoryManager(repositorySystem.newLocalRepositoryManager(session, localRepo));
 
         // Enable verbose mode for conflict resolution debugging
