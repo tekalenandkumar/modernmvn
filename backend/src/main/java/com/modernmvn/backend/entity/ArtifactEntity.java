@@ -8,7 +8,10 @@ import java.time.Instant;
  * Versions are tracked separately in ArtifactVersionEntity.
  */
 @Entity
-@Table(name = "artifacts", uniqueConstraints = @UniqueConstraint(columnNames = { "group_id", "artifact_id" }))
+@Table(name = "artifacts", uniqueConstraints = @UniqueConstraint(columnNames = { "group_id",
+        "artifact_id" }), indexes = {
+                @Index(name = "idx_artifact_lookup", columnList = "group_id, artifact_id")
+        })
 public class ArtifactEntity {
 
     @Id

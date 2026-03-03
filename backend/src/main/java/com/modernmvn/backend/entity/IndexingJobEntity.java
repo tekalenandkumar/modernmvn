@@ -1,12 +1,6 @@
 package com.modernmvn.backend.entity;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
@@ -28,11 +22,9 @@ public class IndexingJobEntity {
     @Column(name = "version", nullable = false)
     private String version;
 
-    /**
-     * PENDING, PROCESSING, COMPLETE, FAILED
-     */
-    @Column(nullable = false)
-    private String status;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private IndexingJobStatus status;
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
@@ -47,7 +39,7 @@ public class IndexingJobEntity {
         this.groupId = groupId;
         this.artifactId = artifactId;
         this.version = version;
-        this.status = "PENDING";
+        this.status = IndexingJobStatus.PENDING;
         this.createdAt = Instant.now();
         this.updatedAt = Instant.now();
     }
@@ -68,11 +60,11 @@ public class IndexingJobEntity {
         return version;
     }
 
-    public String getStatus() {
+    public IndexingJobStatus getStatus() {
         return status;
     }
 
-    public void setStatus(String status) {
+    public void setStatus(IndexingJobStatus status) {
         this.status = status;
         this.updatedAt = Instant.now();
     }

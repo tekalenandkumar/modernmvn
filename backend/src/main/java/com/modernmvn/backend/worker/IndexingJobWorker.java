@@ -1,8 +1,10 @@
 package com.modernmvn.backend.worker;
 
 import com.modernmvn.backend.entity.IndexingJobEntity;
+import com.modernmvn.backend.entity.IndexingJobStatus;
 import com.modernmvn.backend.repository.IndexingJobRepository;
 import com.modernmvn.backend.service.ArtifactIndexingService;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -19,10 +21,20 @@ public class IndexingJobWorker {
 
     private final IndexingJobRepository jobRepository;
     private final ArtifactIndexingService indexingService;
+    private final MeterRegistry meterRegistry;
 
-    public IndexingJobWorker(IndexingJobRepository jobRepository, ArtifactIndexingService indexingService) {
+    public IndexingJobWorker(IndexingJobRepository jobRepository,
+            ArtifactIndexingService indexingService,
+            MeterRegistry meterRegistry) {
         this.jobRepository = jobRepository;
         this.indexingService = indexingService;
+        this.meterRegistry = meterRegistry;
+
+        // Register gauges for queue depth visibility
+        meterRegistry.gauge("indexing_jobs.pending", jobRepository,
+                repo -> repo.countByStatus(IndexingJobStatus.PENDING));
+        meterRegistry.gauge("indexing_jobs.processing", jobRepository,
+                repo -> repo.countByStatus(IndexingJobStatus.PROCESSING));
     }
 
     /**
@@ -34,7 +46,8 @@ public class IndexingJobWorker {
     @Transactional
     public void processIndexingJobs() {
         // Fetch up to 5 jobs using skip-locked for cluster safety
-        List<IndexingJobEntity> jobs = jobRepository.findPendingJobsWithLock("PENDING", PageRequest.of(0, 5));
+        List<IndexingJobEntity> jobs = jobRepository.findPendingJobsWithLock(IndexingJobStatus.PENDING,
+                PageRequest.of(0, 5));
 
         if (jobs.isEmpty()) {
             return;
@@ -45,14 +58,14 @@ public class IndexingJobWorker {
                     job.getId());
             try {
                 // Mark as PROCESSING
-                job.setStatus("PROCESSING");
+                job.setStatus(IndexingJobStatus.PROCESSING);
                 jobRepository.saveAndFlush(job);
 
                 // This handles the actual work
                 indexingService.processJob(job);
             } catch (Exception e) {
                 log.error("Failed to process job {}: {}", job.getId(), e.getMessage());
-                job.setStatus("FAILED");
+                job.setStatus(IndexingJobStatus.FAILED);
                 jobRepository.save(job);
             }
 

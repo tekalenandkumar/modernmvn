@@ -50,6 +50,18 @@ public class SecurityController {
         try {
             // Read from DB (instant)
             VulnerabilityReport report = getReportFromDbOrLive(groupId, artifactId, version);
+
+            if (report == null) {
+                // Graceful degeneracy: return a status indicating indexing is in progress
+                return ResponseEntity.ok(Map.of(
+                        "groupId", groupId,
+                        "artifactId", artifactId,
+                        "version", version,
+                        "status", "INDEXING",
+                        "indicator", SafetyIndicator.UNKNOWN,
+                        "message", "Security analysis in progress — check back soon"));
+            }
+
             return ResponseEntity.ok(report);
         } catch (Exception e) {
             Throwable cause = e.getCause() != null ? e.getCause() : e;
@@ -135,23 +147,36 @@ public class SecurityController {
             VulnerabilityReport report = getReportFromDbOrLive(groupId, artifactId, version);
 
             SafetyIndicator indicator;
-            if (report.criticalCount() > 0 || report.highCount() > 0) {
-                indicator = SafetyIndicator.DANGER;
-            } else if (report.mediumCount() > 0) {
-                indicator = SafetyIndicator.WARNING;
-            } else if (report.lowCount() > 0) {
-                indicator = SafetyIndicator.CAUTION;
-            } else {
-                indicator = SafetyIndicator.SAFE;
-            }
+            String label;
+            int vulnCount;
+            String severity;
 
-            String label = switch (indicator) {
-                case SAFE -> "No known vulnerabilities";
-                case CAUTION -> report.totalVulnerabilities() + " low-severity issue(s)";
-                case WARNING -> report.totalVulnerabilities() + " vulnerability(ies) found";
-                case DANGER -> report.totalVulnerabilities() + " security issue(s) — action recommended";
-                case UNKNOWN -> "Security analysis in progress — check back soon";
-            };
+            if (report == null) {
+                indicator = SafetyIndicator.UNKNOWN;
+                label = "Security analysis in progress — check back soon";
+                vulnCount = 0;
+                severity = "PENDING";
+            } else {
+                if (report.criticalCount() > 0 || report.highCount() > 0) {
+                    indicator = SafetyIndicator.DANGER;
+                } else if (report.mediumCount() > 0) {
+                    indicator = SafetyIndicator.WARNING;
+                } else if (report.lowCount() > 0) {
+                    indicator = SafetyIndicator.CAUTION;
+                } else {
+                    indicator = SafetyIndicator.SAFE;
+                }
+
+                label = switch (indicator) {
+                    case SAFE -> "No known vulnerabilities";
+                    case CAUTION -> report.totalVulnerabilities() + " low-severity issue(s)";
+                    case WARNING -> report.totalVulnerabilities() + " vulnerability(ies) found";
+                    case DANGER -> report.totalVulnerabilities() + " security issue(s) — action recommended";
+                    default -> "No known vulnerabilities";
+                };
+                vulnCount = report.totalVulnerabilities();
+                severity = report.highestSeverity() != null ? report.highestSeverity().toString() : "NONE";
+            }
 
             Map<String, Object> responseBlock = Map.<String, Object>of(
                     "groupId", groupId,
@@ -159,8 +184,8 @@ public class SecurityController {
                     "version", version,
                     "indicator", indicator,
                     "label", label,
-                    "vulnerabilityCount", report.totalVulnerabilities(),
-                    "highestSeverity", report.highestSeverity() != null ? report.highestSeverity() : "NONE");
+                    "vulnerabilityCount", vulnCount,
+                    "highestSeverity", severity);
 
             return ResponseEntity.ok(responseBlock);
 
@@ -199,7 +224,7 @@ public class SecurityController {
                         "totalVulnerabilities", s.getTotalVulns(),
                         "criticalCount", s.getCriticalCount(),
                         "highCount", s.getHighCount(),
-                        "maxCvssScore", s.getMaxCvss()));
+                        "maxCvssScore", Math.max(0.0, s.getMaxCvss())));
             }
 
             return ResponseEntity.ok(Map.of(
@@ -235,11 +260,12 @@ public class SecurityController {
                 return buildReportFromSummary(opt.get(), groupId, artifactId, version);
             }
         } catch (Exception e) {
-            // Indexing failed — fall through to live OSV
+            // Indexing failed — fall through
         }
 
-        // 3. Indexing failed and no DB data — return pending/empty response
-        throw new IllegalStateException("Security data unavailable — indexing may be in progress");
+        // 3. Return null instead of throwing 500 — controller will handle graceful
+        // degeneracy
+        return null;
     }
 
     private VulnerabilityReport buildReportFromSummary(

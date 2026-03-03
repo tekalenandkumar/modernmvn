@@ -1,5 +1,6 @@
 package com.modernmvn.backend.service;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
@@ -9,9 +10,11 @@ import java.time.Duration;
 public class RateLimiterService {
 
     private final StringRedisTemplate redisTemplate;
+    private final MeterRegistry meterRegistry;
 
-    public RateLimiterService(StringRedisTemplate redisTemplate) {
+    public RateLimiterService(StringRedisTemplate redisTemplate, MeterRegistry meterRegistry) {
         this.redisTemplate = redisTemplate;
+        this.meterRegistry = meterRegistry;
     }
 
     /**
@@ -36,6 +39,12 @@ public class RateLimiterService {
             redisTemplate.expire(fullKey, expiry);
         }
 
-        return count != null && count <= limit;
+        boolean allowed = count != null && count <= limit;
+
+        if (!allowed) {
+            meterRegistry.counter("rate_limit.blocked", "key", key).increment();
+        }
+
+        return allowed;
     }
 }
