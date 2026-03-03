@@ -147,6 +147,7 @@ public class SecurityController {
                 case CAUTION -> report.totalVulnerabilities() + " low-severity issue(s)";
                 case WARNING -> report.totalVulnerabilities() + " vulnerability(ies) found";
                 case DANGER -> report.totalVulnerabilities() + " security issue(s) — action recommended";
+                case UNKNOWN -> "Security analysis in progress — check back soon";
             };
 
             Map<String, Object> responseBlock = Map.<String, Object>of(
@@ -180,17 +181,21 @@ public class SecurityController {
             @RequestParam(defaultValue = "90") int days) {
         try {
             days = Math.min(days, 365);
-            // Read from the precomputed security summary (DB-only)
-            Optional<SecuritySummaryEntity> summary = indexingService.getSecuritySummary(groupId, artifactId, null);
+            // Read from the precomputed security summaries (historical trend)
+            List<SecuritySummaryEntity> history = indexingService.getSecurityHistory(groupId, artifactId);
 
-            // Build trend-like response from summary data
+            // Convert to trend data points
             List<Map<String, Object>> dataPoints = new ArrayList<>();
-            summary.ifPresent(s -> dataPoints.add(Map.of(
-                    "date", s.getLastCalculatedAt() != null ? s.getLastCalculatedAt().toString() : "",
-                    "totalVulnerabilities", s.getTotalVulns(),
-                    "criticalCount", s.getCriticalCount(),
-                    "highCount", s.getHighCount(),
-                    "maxCvssScore", s.getMaxCvss())));
+            for (SecuritySummaryEntity s : history) {
+                // Determine version name if possible (optional: could join or fetch version
+                // name)
+                dataPoints.add(Map.of(
+                        "date", s.getLastCalculatedAt() != null ? s.getLastCalculatedAt().toString() : "",
+                        "totalVulnerabilities", s.getTotalVulns(),
+                        "criticalCount", s.getCriticalCount(),
+                        "highCount", s.getHighCount(),
+                        "maxCvssScore", s.getMaxCvss()));
+            }
 
             return ResponseEntity.ok(Map.of(
                     "groupId", groupId,
@@ -261,17 +266,15 @@ public class SecurityController {
     private VersionAssessment assessVersionFromDb(
             String groupId, String artifactId,
             String version, boolean isRelease, long timestamp) {
-        // 1. Ensure indexed (will wait if another thread is indexing)
-        try {
-            indexingService.ensureIndexed(groupId, artifactId, version);
-        } catch (Exception e) {
-            // Indexing failed — continue with empty report
-        }
+        // Only read from DB. No blocking ensureIndexed() here.
+        // We rely on getVersionIntelligence() triggering async background indexing.
 
         // 2. Read from DB
         VulnerabilityReport report;
         Optional<SecuritySummaryEntity> opt = indexingService.getSecuritySummary(groupId, artifactId, version);
-        if (opt.isPresent()) {
+        boolean isIndexed = opt.isPresent();
+
+        if (isIndexed) {
             report = buildReportFromSummary(opt.get(), groupId, artifactId, version);
         } else {
             report = VulnerabilityReport.clean(groupId, artifactId, version);
@@ -283,7 +286,9 @@ public class SecurityController {
 
         // 4. Compute combined safety indicator
         SafetyIndicator safety;
-        if (report.criticalCount() > 0 || report.highCount() > 0) {
+        if (!isIndexed) {
+            safety = SafetyIndicator.UNKNOWN;
+        } else if (report.criticalCount() > 0 || report.highCount() > 0) {
             safety = SafetyIndicator.DANGER;
         } else if (report.mediumCount() > 0) {
             safety = SafetyIndicator.WARNING;
@@ -304,6 +309,7 @@ public class SecurityController {
                     ? report.totalVulnerabilities() + " known vulnerabilities"
                     : "Outdated — consider upgrading";
             case DANGER -> report.totalVulnerabilities() + " security issues found";
+            case UNKNOWN -> "Security analysis in progress";
         };
 
         return new VersionAssessment(

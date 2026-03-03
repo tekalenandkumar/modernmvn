@@ -49,6 +49,7 @@ public record VersionIntelligence(
         SAFE, // no known vulnerabilities, stable release
         CAUTION, // minor issues or pre-release
         WARNING, // known vulnerabilities (medium/low) or very outdated
-        DANGER // critical or high-severity vulnerabilities
+        DANGER, // critical or high-severity vulnerabilities
+        UNKNOWN // indexing in progress or not yet started
     }
 }

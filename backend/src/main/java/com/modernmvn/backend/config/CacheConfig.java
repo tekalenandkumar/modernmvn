@@ -28,6 +28,7 @@ public class CacheConfig implements CachingConfigurer {
         @Bean
         public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
                 RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
+                                .computePrefixWith(cacheName -> "modernmvn:" + cacheName + ":")
                                 .entryTtl(Duration.ofHours(24))
                                 .disableCachingNullValues()
                                 .serializeKeysWith(

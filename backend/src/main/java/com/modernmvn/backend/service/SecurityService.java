@@ -49,7 +49,6 @@ public class SecurityService {
 
     // OSV.dev is free, no API key required
     private static final String OSV_QUERY_URL = "https://api.osv.dev/v1/query";
-    private static final String OSV_VULN_URL = "https://api.osv.dev/v1/vulns/";
     // NVD API — free, no key needed for basic use (rate-limited)
     private static final String NVD_CVE_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=";
 
@@ -311,6 +310,7 @@ public class SecurityService {
                     ? vulnCount + " known " + (vulnCount == 1 ? "vulnerability" : "vulnerabilities")
                     : "Outdated — consider upgrading";
             case DANGER -> vulnCount + " security " + (vulnCount == 1 ? "issue" : "issues") + " found";
+            case UNKNOWN -> "Analysis in progress";
         };
     }
 

@@ -11,7 +11,8 @@ import java.time.Instant;
 @Table(name = "artifact_versions", uniqueConstraints = @UniqueConstraint(columnNames = { "artifact_id",
         "version" }), indexes = {
                 @Index(name = "idx_av_lookup", columnList = "artifact_id, version"),
-                @Index(name = "idx_av_status", columnList = "indexing_status")
+                @Index(name = "idx_av_status", columnList = "indexing_status"),
+                @Index(name = "idx_av_created", columnList = "created_at")
         })
 public class ArtifactVersionEntity {
 

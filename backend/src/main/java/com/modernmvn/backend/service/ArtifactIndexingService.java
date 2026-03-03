@@ -253,6 +253,13 @@ public class ArtifactIndexingService {
         return Optional.empty();
     }
 
+    /**
+     * Get all security summaries for an artifact, providing historical trend data.
+     */
+    public List<SecuritySummaryEntity> getSecurityHistory(String groupId, String artifactId) {
+        return summaryRepository.findHistory(groupId, artifactId);
+    }
+
     // ──────────────────────── Stale Refresh ────────────────────────
 
     /**
@@ -498,7 +505,7 @@ public class ArtifactIndexingService {
      * are ready for instant reads. Only indexes the top N stable releases
      * to avoid overwhelming external APIs.
      */
-    @Async
+    @Async("asyncExecutor")
     public void indexAllVersionsAsync(String groupId, String artifactId) {
         log.info("Starting bulk version indexing for {}:{}", groupId, artifactId);
         try {

@@ -32,6 +32,10 @@ public class MavenConfig {
                 true);
         session.setConfigProperty(org.eclipse.aether.util.graph.transformer.ConflictResolver.CONFIG_PROP_VERBOSE, true);
 
+        // Security: Set timeouts for Aether transport
+        session.setConfigProperty("aether.connector.connectTimeout", 5000); // 5s
+        session.setConfigProperty("aether.connector.requestTimeout", 15000); // 15s
+
         return session;
     }
 }

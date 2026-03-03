@@ -4,6 +4,9 @@ import com.modernmvn.backend.dto.DependencyNode;
 import com.modernmvn.backend.dto.MultiModuleResult;
 import com.modernmvn.backend.dto.PomUploadRequest;
 import com.modernmvn.backend.service.MavenResolutionService;
+import com.modernmvn.backend.service.RateLimiterService;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -18,39 +21,62 @@ import java.util.Map;
 public class MavenController {
 
     private final MavenResolutionService mavenResolutionService;
+    private final RateLimiterService rateLimiterService;
 
     // 512 KB file upload limit
     private static final long MAX_FILE_SIZE = 512 * 1024;
 
-    public MavenController(MavenResolutionService mavenResolutionService) {
+    public MavenController(MavenResolutionService mavenResolutionService, RateLimiterService rateLimiterService) {
         this.mavenResolutionService = mavenResolutionService;
+        this.rateLimiterService = rateLimiterService;
+    }
+
+    private boolean isAllowed(HttpServletRequest request) {
+        String ip = request.getRemoteAddr();
+        return rateLimiterService.tryConsume(ip + ":resolve", 10, 1);
     }
 
     @GetMapping("/resolve")
-    public DependencyNode resolve(
+    public ResponseEntity<?> resolve(
             @RequestParam String groupId,
             @RequestParam String artifactId,
             @RequestParam String version,
-            @RequestParam(required = false) List<String> repos) {
-        if (repos != null && !repos.isEmpty()) {
-            return mavenResolutionService.resolveDependencyWithRepos(groupId, artifactId, version, repos);
+            @RequestParam(required = false) List<String> repos,
+            HttpServletRequest request) {
+
+        if (!isAllowed(request)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "Rate limit exceeded. Try again in a minute."));
         }
-        return mavenResolutionService.resolveDependency(groupId, artifactId, version);
+
+        if (repos != null && !repos.isEmpty()) {
+            return ResponseEntity
+                    .ok(mavenResolutionService.resolveDependencyWithRepos(groupId, artifactId, version, repos));
+        }
+        return ResponseEntity.ok(mavenResolutionService.resolveDependency(groupId, artifactId, version));
     }
 
     /**
      * Resolve from raw POM content (text/plain body) — backward compatible.
      */
     @PostMapping("/resolve/pom")
-    public DependencyNode resolvePom(@RequestBody String pomContent) {
-        return mavenResolutionService.resolveFromPom(pomContent);
+    public ResponseEntity<?> resolvePom(@RequestBody String pomContent, HttpServletRequest request) {
+        if (!isAllowed(request)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "Rate limit exceeded. Try again in a minute."));
+        }
+        return ResponseEntity.ok(mavenResolutionService.resolveFromPom(pomContent));
     }
 
     /**
      * Enhanced POM resolution with custom repos and multi-module support.
      */
     @PostMapping("/resolve/pom/advanced")
-    public ResponseEntity<?> resolvePomAdvanced(@RequestBody PomUploadRequest request) {
+    public ResponseEntity<?> resolvePomAdvanced(@RequestBody PomUploadRequest request, HttpServletRequest httpRequest) {
+        if (!isAllowed(httpRequest)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "Rate limit exceeded. Try again in a minute."));
+        }
         try {
             if (request.detectMultiModule()) {
                 MultiModuleResult result = mavenResolutionService.resolveMultiModule(
@@ -73,7 +99,12 @@ public class MavenController {
     public ResponseEntity<?> resolveUpload(
             @RequestPart("file") MultipartFile file,
             @RequestParam(required = false) List<String> repos,
-            @RequestParam(required = false, defaultValue = "true") boolean detectMultiModule) {
+            @RequestParam(required = false, defaultValue = "true") boolean detectMultiModule,
+            HttpServletRequest httpRequest) {
+        if (!isAllowed(httpRequest)) {
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Map.of("error", "Rate limit exceeded. Try again in a minute."));
+        }
         try {
             // Validate file
             if (file.isEmpty()) {

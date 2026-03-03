@@ -27,6 +27,7 @@ public class MavenResolutionService {
     // Limits for security
     private static final int MAX_POM_SIZE_BYTES = 512 * 1024; // 512 KB
     private static final int MAX_CUSTOM_REPOS = 5;
+    private static final int MAX_RESOLUTION_DEPTH = 10;
     private static final Set<String> ALLOWED_REPO_SCHEMES = Set.of("https");
 
     public MavenResolutionService(RepositorySystem repositorySystem, RepositorySystemSession repositorySystemSession) {
@@ -60,7 +61,7 @@ public class MavenResolutionService {
                 }
             }
 
-            return convertToDto(collectResult.getRoot());
+            return convertToDto(collectResult.getRoot(), 0);
         } catch (Exception e) {
             e.printStackTrace();
             return new DependencyNode(groupId, artifactId, version, "compile", "jar", Collections.emptyList(), "ERROR",
@@ -212,7 +213,7 @@ public class MavenResolutionService {
 
             List<DependencyNode> children = new ArrayList<>();
             for (org.eclipse.aether.graph.DependencyNode child : collectResult.getRoot().getChildren()) {
-                children.add(convertToDto(child));
+                children.add(convertToDto(child, 1));
             }
 
             return new DependencyNode(groupId, artifactId, version, "compile", "pom", children, "RESOLVED", null);
@@ -313,10 +314,13 @@ public class MavenResolutionService {
         return value;
     }
 
-    private DependencyNode convertToDto(org.eclipse.aether.graph.DependencyNode aetherNode) {
+    private DependencyNode convertToDto(org.eclipse.aether.graph.DependencyNode aetherNode, int depth) {
         List<DependencyNode> children = new ArrayList<>();
-        for (org.eclipse.aether.graph.DependencyNode child : aetherNode.getChildren()) {
-            children.add(convertToDto(child));
+
+        if (depth < MAX_RESOLUTION_DEPTH) {
+            for (org.eclipse.aether.graph.DependencyNode child : aetherNode.getChildren()) {
+                children.add(convertToDto(child, depth + 1));
+            }
         }
 
         Artifact artifact = aetherNode.getArtifact();
