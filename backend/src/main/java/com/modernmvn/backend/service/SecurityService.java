@@ -320,7 +320,6 @@ public class SecurityService {
      * Query the OSV.dev API for vulnerabilities affecting a Maven package version.
      * Protected by Resilience4j. If it fails or times out, returns empty list.
      */
-    @CircuitBreaker(name = "osv", fallbackMethod = "osvFallback")
     @TimeLimiter(name = "osv", fallbackMethod = "osvFallbackFuture")
     public CompletableFuture<List<SecurityAdvisory>> queryOsvPublicFuture(String groupId, String artifactId,
             String version) {
@@ -336,6 +335,7 @@ public class SecurityService {
     /**
      * Internal synchronous call wrapped by the Future for TimeLimiter access.
      */
+    @CircuitBreaker(name = "osv", fallbackMethod = "osvFallback")
     public List<SecurityAdvisory> queryOsvPublic(String groupId, String artifactId, String version) throws Exception {
         return queryOsvPublicFuture(groupId, artifactId, version).join();
     }

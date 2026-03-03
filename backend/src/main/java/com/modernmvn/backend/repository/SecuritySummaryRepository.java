@@ -17,8 +17,10 @@ public interface SecuritySummaryRepository extends JpaRepository<SecuritySummary
         @Query("SELECT s FROM SecuritySummaryEntity s " +
                         "JOIN ArtifactVersionEntity v ON s.artifactVersionId = v.id " +
                         "WHERE v.artifact.groupId = :g AND v.artifact.artifactId = :a " +
+                        "AND s.lastCalculatedAt >= :cutoff " +
                         "ORDER BY s.lastCalculatedAt DESC")
-        List<SecuritySummaryEntity> findHistory(@Param("g") String groupId, @Param("a") String artifactId);
+        List<SecuritySummaryEntity> findHistory(@Param("g") String groupId, @Param("a") String artifactId,
+                        @Param("cutoff") java.time.Instant cutoff);
 
         @Query("SELECT s FROM SecuritySummaryEntity s " +
                         "JOIN ArtifactVersionEntity v ON s.artifactVersionId = v.id " +

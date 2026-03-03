@@ -106,7 +106,7 @@ public class ArtifactIndexingService {
             Optional<ArtifactVersionEntity> current = versionRepository.findByGav(groupId, artifactId, version);
             if (current.isPresent()) {
                 ArtifactVersionEntity av = current.get();
-                if ("COMPLETE".equals(av.getIndexingStatus())) {
+                if (IndexingJobStatus.COMPLETE.equals(av.getIndexingStatus())) {
                     Instant staleLimit = Instant.now().minus(STALENESS_HOURS, ChronoUnit.HOURS);
                     if (av.getLastIndexedAt() != null && av.getLastIndexedAt().isAfter(staleLimit)) {
                         return av;
@@ -178,14 +178,14 @@ public class ArtifactIndexingService {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public ArtifactVersionEntity markAsIndexing(String groupId, String artifactId, String version) {
         ArtifactVersionEntity av = getOrCreateVersionShell(groupId, artifactId, version);
-        av.setIndexingStatus("INDEXING");
+        av.setIndexingStatus(IndexingJobStatus.PROCESSING);
         return versionRepository.saveAndFlush(av);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void recordIndexingError(String groupId, String artifactId, String version, String error) {
         versionRepository.findByGav(groupId, artifactId, version).ifPresent(av -> {
-            av.setIndexingStatus("FAILED");
+            av.setIndexingStatus(IndexingJobStatus.FAILED);
             av.setErrorMessage(error != null && error.length() > 1000 ? error.substring(0, 997) + "..." : error);
             versionRepository.save(av);
         });
@@ -198,7 +198,9 @@ public class ArtifactIndexingService {
                 .orElseThrow(() -> new IllegalStateException("Version lost during indexing: " + versionId));
 
         DependencyNode root = result.root();
-        av.setDependencyCount(countTotalDependencies(root));
+        int depCount = countTotalDependencies(root);
+        av.setDependencyCount(depCount);
+        meterRegistry.summary("dependency_graph.size").record(depCount);
 
         // Delete old edges
         edgeRepository.deleteByRootVersionId(av.getId());
@@ -216,7 +218,7 @@ public class ArtifactIndexingService {
         }
 
         // Finalize version
-        av.setIndexingStatus("COMPLETE");
+        av.setIndexingStatus(IndexingJobStatus.COMPLETE);
         av.setLastIndexedAt(Instant.now());
         av.setErrorMessage(null);
 
@@ -329,7 +331,8 @@ public class ArtifactIndexingService {
     }
 
     public List<SecuritySummaryEntity> getSecurityHistory(String groupId, String artifactId) {
-        return summaryRepository.findHistory(groupId, artifactId);
+        Instant cutoff = Instant.now().minus(365, ChronoUnit.DAYS);
+        return summaryRepository.findHistory(groupId, artifactId, cutoff);
     }
 
     @Transactional(readOnly = true)

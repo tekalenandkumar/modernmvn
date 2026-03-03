@@ -36,8 +36,8 @@ public class MavenConfig {
                 false);
 
         // Security: Set timeouts for Aether transport
-        session.setConfigProperty("aether.connector.connectTimeout", 30000); // 30s
-        session.setConfigProperty("aether.connector.requestTimeout", 60000); // 60s
+        session.setConfigProperty("aether.connector.connectTimeout", 5000); // 5s
+        session.setConfigProperty("aether.connector.requestTimeout", 15000); // 15s
 
         // Performance: Max threads for concurrent downloads
         session.setConfigProperty("aether.priority.cachedir", "/tmp/aether-cache");

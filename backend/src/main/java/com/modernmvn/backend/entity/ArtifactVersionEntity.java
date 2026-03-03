@@ -33,8 +33,9 @@ public class ArtifactVersionEntity {
     @Column(name = "published_at")
     private Instant publishedAt;
 
+    @Enumerated(EnumType.STRING)
     @Column(name = "indexing_status", nullable = false, length = 20)
-    private String indexingStatus = "PENDING";
+    private IndexingJobStatus indexingStatus = IndexingJobStatus.PENDING;
 
     @Column(name = "last_indexed_at")
     private Instant lastIndexedAt;
@@ -56,7 +57,7 @@ public class ArtifactVersionEntity {
     public ArtifactVersionEntity(ArtifactEntity artifact, String version) {
         this.artifact = artifact;
         this.version = version;
-        this.indexingStatus = "PENDING";
+        this.indexingStatus = IndexingJobStatus.PENDING;
         this.createdAt = Instant.now();
     }
 
@@ -90,11 +91,11 @@ public class ArtifactVersionEntity {
         this.publishedAt = publishedAt;
     }
 
-    public String getIndexingStatus() {
+    public IndexingJobStatus getIndexingStatus() {
         return indexingStatus;
     }
 
-    public void setIndexingStatus(String indexingStatus) {
+    public void setIndexingStatus(IndexingJobStatus indexingStatus) {
         this.indexingStatus = indexingStatus;
     }
 

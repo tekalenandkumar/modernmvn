@@ -6,6 +6,8 @@ import java.time.Instant;
 @Entity
 @Table(name = "indexing_jobs", uniqueConstraints = {
         @UniqueConstraint(name = "idx_indexing_job_unique", columnNames = { "group_id", "artifact_id", "version" })
+}, indexes = {
+        @Index(name = "idx_job_status_created", columnList = "status, created_at")
 })
 public class IndexingJobEntity {
 
