@@ -9,7 +9,9 @@ import java.time.Instant;
  * This is what the controller reads — no live OSV calls needed.
  */
 @Entity
-@Table(name = "artifact_security_summaries")
+@Table(name = "artifact_security_summaries", indexes = {
+        @Index(name = "idx_summary_date", columnList = "last_calculated_at")
+})
 public class SecuritySummaryEntity {
 
     @Id

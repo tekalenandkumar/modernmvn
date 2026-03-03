@@ -5,8 +5,10 @@ import com.modernmvn.backend.repository.IndexingJobRepository;
 import com.modernmvn.backend.service.ArtifactIndexingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -25,36 +27,38 @@ public class IndexingJobWorker {
 
     /**
      * Polls the `indexing_jobs` table every 2 seconds for PENDING jobs.
-     * Uses a fixed delay so that the next execution starts only
-     * after the previous one completes.
+     * Uses FOR UPDATE SKIP LOCKED via the repository to ensure cluster-safe
+     * processing.
      */
     @Scheduled(fixedDelayString = "${modernmvn.worker.indexing.delay:2000}")
+    @Transactional
     public void processIndexingJobs() {
-        List<IndexingJobEntity> pendingJobs = jobRepository.findTop10ByStatusOrderByCreatedAtAsc("PENDING");
+        // Fetch up to 5 jobs using skip-locked for cluster safety
+        List<IndexingJobEntity> jobs = jobRepository.findPendingJobsWithLock("PENDING", PageRequest.of(0, 5));
 
-        if (pendingJobs.isEmpty()) {
+        if (jobs.isEmpty()) {
             return;
         }
 
-        log.debug("Found {} pending indexing jobs", pendingJobs.size());
-
-        for (IndexingJobEntity job : pendingJobs) {
-            // Mark as PROCESSING immediately to prevent other instances from picking it up
-            job.setStatus("PROCESSING");
-            jobRepository.save(job);
-
+        for (IndexingJobEntity job : jobs) {
+            log.info("Processing job {}:{}:{} (ID: {})", job.getGroupId(), job.getArtifactId(), job.getVersion(),
+                    job.getId());
             try {
-                // This call is transactional internally and handles the Distributed Lock
+                // Mark as PROCESSING
+                job.setStatus("PROCESSING");
+                jobRepository.saveAndFlush(job);
+
+                // This handles the actual work
                 indexingService.processJob(job);
             } catch (Exception e) {
-                log.error("Unhandled exception processing indexing job ID {}: {}", job.getId(), e.getMessage());
+                log.error("Failed to process job {}: {}", job.getId(), e.getMessage());
                 job.setStatus("FAILED");
                 jobRepository.save(job);
             }
 
-            // Wait briefly to avoid hammering external APIs if picking up many jobs
+            // Small delay between jobs to stay within API rate limits of OSV/Maven
             try {
-                Thread.sleep(1000);
+                Thread.sleep(500);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;

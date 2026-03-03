@@ -6,8 +6,10 @@ import com.modernmvn.backend.dto.PomUploadRequest;
 import com.modernmvn.backend.service.MavenResolutionService;
 import com.modernmvn.backend.service.RateLimiterService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.constraints.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -18,6 +20,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/maven")
+@Validated
 public class MavenController {
 
     private final MavenResolutionService mavenResolutionService;
@@ -38,9 +41,9 @@ public class MavenController {
 
     @GetMapping("/resolve")
     public ResponseEntity<?> resolve(
-            @RequestParam String groupId,
-            @RequestParam String artifactId,
-            @RequestParam String version,
+            @RequestParam @Pattern(regexp = "[a-zA-Z0-9._-]+") String groupId,
+            @RequestParam @Pattern(regexp = "[a-zA-Z0-9._-]+") String artifactId,
+            @RequestParam @Pattern(regexp = "[a-zA-Z0-9._-]+") String version,
             @RequestParam(required = false) List<String> repos,
             HttpServletRequest request) {
 

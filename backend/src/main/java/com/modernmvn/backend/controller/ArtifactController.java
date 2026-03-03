@@ -7,13 +7,16 @@ import com.modernmvn.backend.dto.SearchResult.SearchResultItem;
 import com.modernmvn.backend.service.MavenCentralService;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.constraints.Pattern;
 import java.util.List;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/maven")
+@Validated
 public class ArtifactController {
 
     private final MavenCentralService mavenCentralService;
@@ -85,7 +88,7 @@ public class ArtifactController {
      */
     @GetMapping("/group/{groupId}")
     public ResponseEntity<?> getGroupArtifacts(
-            @PathVariable String groupId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String groupId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         try {
@@ -110,8 +113,8 @@ public class ArtifactController {
      */
     @GetMapping("/artifact/{groupId}/{artifactId}/usedby")
     public ResponseEntity<?> getReverseDependencies(
-            @PathVariable String groupId,
-            @PathVariable String artifactId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String groupId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String artifactId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size) {
         try {
@@ -130,8 +133,8 @@ public class ArtifactController {
      */
     @GetMapping("/artifact/{groupId}/{artifactId}/usedby/count")
     public ResponseEntity<?> getReverseDependencyCount(
-            @PathVariable String groupId,
-            @PathVariable String artifactId) {
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String groupId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String artifactId) {
         try {
             int count = mavenCentralService.getReverseDependencyCount(groupId, artifactId);
             return ResponseEntity.ok(Map.of("count", count));
@@ -149,8 +152,8 @@ public class ArtifactController {
      */
     @GetMapping("/artifact/{groupId}/{artifactId}")
     public ResponseEntity<?> getArtifactInfo(
-            @PathVariable String groupId,
-            @PathVariable String artifactId) {
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String groupId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String artifactId) {
         try {
             ArtifactInfo info = mavenCentralService.getArtifactInfo(groupId, artifactId);
             return ResponseEntity.ok(info);
@@ -167,9 +170,9 @@ public class ArtifactController {
      */
     @GetMapping("/artifact/{groupId}/{artifactId}/{version}")
     public ResponseEntity<?> getArtifactDetail(
-            @PathVariable String groupId,
-            @PathVariable String artifactId,
-            @PathVariable String version) {
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String groupId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String artifactId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String version) {
         try {
             ArtifactDetail detail = mavenCentralService.getArtifactDetail(groupId, artifactId, version);
             return ResponseEntity.ok(detail);

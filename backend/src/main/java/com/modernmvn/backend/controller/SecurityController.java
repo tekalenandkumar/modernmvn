@@ -8,19 +8,22 @@ import com.modernmvn.backend.entity.SecuritySummaryEntity;
 import com.modernmvn.backend.service.ArtifactIndexingService;
 import com.modernmvn.backend.service.MavenCentralService;
 import com.modernmvn.backend.service.SecurityService;
+import com.modernmvn.backend.dto.SecurityAdvisory.Severity;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.constraints.Pattern;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import com.modernmvn.backend.dto.SecurityAdvisory.Severity;
-
 @RestController
 @RequestMapping("/api/security")
+@Validated
 public class SecurityController {
 
     private final MavenCentralService mavenCentralService;
@@ -41,9 +44,9 @@ public class SecurityController {
      */
     @GetMapping("/{groupId}/{artifactId}/{version}")
     public ResponseEntity<?> getVulnerabilities(
-            @PathVariable String groupId,
-            @PathVariable String artifactId,
-            @PathVariable String version) {
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String groupId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String artifactId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String version) {
         try {
             // Read from DB (instant)
             VulnerabilityReport report = getReportFromDbOrLive(groupId, artifactId, version);
@@ -62,8 +65,8 @@ public class SecurityController {
      */
     @GetMapping("/{groupId}/{artifactId}/intelligence")
     public ResponseEntity<?> getVersionIntelligence(
-            @PathVariable String groupId,
-            @PathVariable String artifactId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String groupId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String artifactId,
             @RequestParam(defaultValue = "10") int versions) {
         try {
             // Get version list from Maven Central
@@ -125,9 +128,9 @@ public class SecurityController {
      */
     @GetMapping("/{groupId}/{artifactId}/{version}/badge")
     public ResponseEntity<?> getSafetyBadge(
-            @PathVariable String groupId,
-            @PathVariable String artifactId,
-            @PathVariable String version) {
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String groupId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String artifactId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String version) {
         try {
             VulnerabilityReport report = getReportFromDbOrLive(groupId, artifactId, version);
 
@@ -176,19 +179,21 @@ public class SecurityController {
      */
     @GetMapping("/{groupId}/{artifactId}/trend")
     public ResponseEntity<?> getVulnerabilityTrend(
-            @PathVariable String groupId,
-            @PathVariable String artifactId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String groupId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String artifactId,
             @RequestParam(defaultValue = "90") int days) {
         try {
             days = Math.min(days, 365);
+            Instant cutoff = Instant.now().minus(days, java.time.temporal.ChronoUnit.DAYS);
             // Read from the precomputed security summaries (historical trend)
             List<SecuritySummaryEntity> history = indexingService.getSecurityHistory(groupId, artifactId);
 
             // Convert to trend data points
             List<Map<String, Object>> dataPoints = new ArrayList<>();
             for (SecuritySummaryEntity s : history) {
-                // Determine version name if possible (optional: could join or fetch version
-                // name)
+                if (s.getLastCalculatedAt() != null && s.getLastCalculatedAt().isBefore(cutoff)) {
+                    continue;
+                }
                 dataPoints.add(Map.of(
                         "date", s.getLastCalculatedAt() != null ? s.getLastCalculatedAt().toString() : "",
                         "totalVulnerabilities", s.getTotalVulns(),
