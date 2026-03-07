@@ -22,6 +22,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.*;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -42,6 +44,33 @@ public class MavenCentralService {
     // Pre-release version pattern
     private static final Pattern PRE_RELEASE_PATTERN = Pattern.compile(
             "(?i).*(alpha|beta|rc|cr|m\\d|snapshot|preview|dev|incubating|ea).*");
+
+    // Hardcoded category mapping for popular artifacts
+    private static final Map<String, List<String>> CATEGORY_MAP = createCategoryMap();
+
+    private static Map<String, List<String>> createCategoryMap() {
+        Map<String, List<String>> map = new HashMap<>();
+        map.put("org.springframework.boot", List.of("Framework", "Web"));
+        map.put("com.google.guava", List.of("Utility"));
+        map.put("org.apache.commons", List.of("Utility"));
+        map.put("com.fasterxml.jackson.core", List.of("JSON"));
+        map.put("org.projectlombok", List.of("Utility"));
+        map.put("org.slf4j", List.of("Logging"));
+        map.put("ch.qos.logback", List.of("Logging"));
+        map.put("org.mockito", List.of("Testing"));
+        map.put("com.google.code.gson", List.of("JSON"));
+        map.put("io.netty", List.of("Networking"));
+        map.put("org.apache.kafka", List.of("Messaging"));
+        map.put("com.zaxxer", List.of("SQL", "Database"));
+        map.put("org.postgresql", List.of("SQL", "Database"));
+        map.put("org.hibernate.orm", List.of("SQL", "ORM"));
+        map.put("io.micrometer", List.of("Metrics"));
+        map.put("com.squareup.okhttp3", List.of("Networking"));
+        map.put("org.apache.httpcomponents.client5", List.of("Networking"));
+        map.put("io.projectreactor", List.of("Reactive"));
+        map.put("org.junit.jupiter", List.of("Testing"));
+        return Collections.unmodifiableMap(map);
+    }
 
     public MavenCentralService() {
         this.httpClient = HttpClient.newBuilder()
@@ -183,7 +212,8 @@ public class MavenCentralService {
                         doc.path("p").asText("jar"),
                         null,
                         doc.path("timestamp").asLong(0),
-                        doc.path("versionCount").asLong(0)));
+                        doc.path("versionCount").asLong(0),
+                        0, "UNKNOWN", List.of()));
             }
 
             return new SearchResult(groupId, totalResults, page, pageSize, items);
@@ -224,7 +254,8 @@ public class MavenCentralService {
                         doc.path("p").asText("jar"),
                         null, // description not available from Solr search
                         doc.path("timestamp").asLong(0),
-                        doc.path("versionCount").asLong(0)));
+                        doc.path("versionCount").asLong(0),
+                        0, "UNKNOWN", List.of()));
             }
 
             return new SearchResult(query, totalResults, page, pageSize, items);
@@ -257,7 +288,8 @@ public class MavenCentralService {
                         doc.path("p").asText("jar"),
                         null,
                         doc.path("timestamp").asLong(0),
-                        doc.path("versionCount").asLong(0)));
+                        doc.path("versionCount").asLong(0),
+                        0, "UNKNOWN", List.of()));
             }
             return items;
         } catch (Exception e) {
@@ -299,13 +331,21 @@ public class MavenCentralService {
         for (String[] artifact : trending) {
             try {
                 JsonNode doc = fetchSolrDoc(artifact[0], artifact[1]);
+                String latest = doc.path("latestVersion").asText("");
+                int usage = getReverseDependencyCount(artifact[0], artifact[1]);
+                boolean safe = isVersionSafe(artifact[0], artifact[1], latest);
+                List<String> categories = CATEGORY_MAP.getOrDefault(artifact[0], List.of());
+
                 items.add(new SearchResultItem(
                         artifact[0], artifact[1],
-                        doc.path("latestVersion").asText(""),
+                        latest,
                         doc.path("p").asText("jar"),
                         null,
                         doc.path("timestamp").asLong(0),
-                        doc.path("versionCount").asLong(0)));
+                        doc.path("versionCount").asLong(0),
+                        usage,
+                        safe ? "SAFE" : "VULNERABLE",
+                        categories));
             } catch (Exception ignored) {
                 // Skip artifacts that fail to resolve
             }
@@ -343,7 +383,8 @@ public class MavenCentralService {
                         doc.path("p").asText("jar"),
                         null,
                         doc.path("timestamp").asLong(0),
-                        doc.path("versionCount").asLong(0)));
+                        doc.path("versionCount").asLong(0),
+                        0, "UNKNOWN", List.of()));
             }
 
             return new SearchResult(groupId + ":" + artifactId, totalResults, page, pageSize, items);
@@ -367,7 +408,9 @@ public class MavenCentralService {
             JsonNode root = objectMapper.readTree(body);
             return root.path("response").path("numFound").asInt(0);
         } catch (Exception e) {
-            return 0; // Gracefully return 0 on failure
+            System.err.println("Failed to fetch reverse dependency count for " + groupId + ":" + artifactId + ": "
+                    + e.getMessage());
+            return 0;
         }
     }
 
@@ -639,6 +682,6 @@ public class MavenCentralService {
     }
 
     private String encode(String value) {
-        return value.replace(" ", "%20");
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 }

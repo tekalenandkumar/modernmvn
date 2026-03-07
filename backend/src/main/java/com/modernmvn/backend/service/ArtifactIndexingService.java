@@ -330,8 +330,10 @@ public class ArtifactIndexingService {
         return summaryRepository.findByGav(groupId, artifactId, version);
     }
 
-    public List<SecuritySummaryEntity> getSecurityHistory(String groupId, String artifactId) {
-        Instant cutoff = Instant.now().minus(365, ChronoUnit.DAYS);
+    public List<SecuritySummaryEntity> getSecurityHistory(String groupId, String artifactId, Instant cutoff) {
+        if (cutoff == null) {
+            cutoff = Instant.now().minus(365, ChronoUnit.DAYS);
+        }
         return summaryRepository.findHistory(groupId, artifactId, cutoff);
     }
 

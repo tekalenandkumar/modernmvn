@@ -8,6 +8,9 @@ export interface SearchResultItem {
     description: string | null;
     timestamp: number;
     versionCount: number;
+    usageCount?: number;
+    safetyStatus?: 'SAFE' | 'VULNERABLE' | 'UNKNOWN';
+    categories?: string[];
 }
 
 export interface SearchResult {

@@ -9,6 +9,8 @@ import {
     Package,
     Tag,
     ExternalLink,
+    Shield,
+    Users,
 } from 'lucide-react';
 import {
     fetchTrendingArtifacts,
@@ -87,28 +89,54 @@ export default function HomeContent() {
 
 function TrendingCard({ item }: { item: SearchResultItem }) {
     const displayName = getDisplayName(item.groupId, item.artifactId);
+    const isSafe = item.safetyStatus === 'SAFE';
+    const isVulnerable = item.safetyStatus === 'VULNERABLE';
+
     return (
         <Link
             href={`/artifact/${item.groupId}/${item.artifactId}`}
-            className="flex items-center gap-3 p-3 rounded-xl border border-gray-800/60 bg-gray-950/40 hover:bg-gray-900/50 hover:border-orange-800/40 transition-all group"
+            className="flex flex-col gap-3 p-4 rounded-xl border border-gray-800/60 bg-gray-950/40 hover:bg-gray-900/50 hover:border-orange-800/40 transition-all group shadow-sm"
         >
-            <div className="w-9 h-9 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-center justify-center shrink-0">
-                <Package className="w-4 h-4 text-orange-400" />
+            <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-orange-500/10 border border-orange-500/20 flex items-center justify-center shrink-0">
+                    <Package className="w-5 h-5 text-orange-400" />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                        <p className="text-sm font-bold text-gray-200 group-hover:text-orange-300 transition-colors truncate">
+                            {displayName}
+                        </p>
+                        {item.safetyStatus && (
+                            <div className={`w-2 h-2 rounded-full shrink-0 ${isSafe ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : isVulnerable ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]' : 'bg-gray-500'}`}
+                                title={isSafe ? 'No known CVEs' : isVulnerable ? 'Vulnerability detected' : 'Security status unknown'} />
+                        )}
+                    </div>
+                    <p className="text-[10px] text-gray-600 font-mono truncate">{item.groupId}</p>
+                </div>
+                <div className="flex flex-col items-end shrink-0">
+                    <span className="text-[10px] font-mono text-blue-400 font-bold">{item.latestVersion}</span>
+                    {item.usageCount !== undefined && item.usageCount > 0 && (
+                        <span className="text-[10px] text-gray-500 flex items-center gap-1 mt-0.5">
+                            <Users size={10} className="text-gray-600" /> {item.usageCount}
+                        </span>
+                    )}
+                </div>
             </div>
-            <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-gray-200 group-hover:text-orange-300 transition-colors truncate">
-                    {displayName}
-                </p>
-                <p className="text-[10px] text-gray-600 font-mono truncate">{item.groupId}</p>
-            </div>
-            <div className="flex flex-col items-end shrink-0">
-                <span className="text-[10px] font-mono text-blue-400">{item.latestVersion}</span>
-                {item.versionCount > 0 && (
-                    <span className="text-[9px] text-gray-600 flex items-center gap-0.5">
-                        <Tag className="w-2.5 h-2.5" /> {item.versionCount}
-                    </span>
-                )}
-            </div>
+
+            {(item.categories && item.categories.length > 0) && (
+                <div className="flex flex-wrap gap-1.5 mt-auto">
+                    {item.categories.map(cat => (
+                        <span key={cat} className="px-2 py-0.5 rounded-md bg-gray-900 border border-gray-800 text-[9px] font-medium text-gray-500 uppercase tracking-wider group-hover:border-gray-700 transition-colors">
+                            {cat}
+                        </span>
+                    ))}
+                    {isVulnerable && (
+                        <span className="ml-auto flex items-center gap-1 text-[9px] font-bold text-red-500/80 uppercase tracking-tighter">
+                            <Shield size={10} /> Vulnerable
+                        </span>
+                    )}
+                </div>
+            )}
         </Link>
     );
 }

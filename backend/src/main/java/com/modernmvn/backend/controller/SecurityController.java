@@ -211,14 +211,12 @@ public class SecurityController {
             days = Math.min(days, 365);
             Instant cutoff = Instant.now().minus(days, java.time.temporal.ChronoUnit.DAYS);
             // Read from the precomputed security summaries (historical trend)
-            List<SecuritySummaryEntity> history = indexingService.getSecurityHistory(groupId, artifactId);
+            // Filtering is now pushed to DB via the cutoff parameter
+            List<SecuritySummaryEntity> history = indexingService.getSecurityHistory(groupId, artifactId, cutoff);
 
             // Convert to trend data points
             List<Map<String, Object>> dataPoints = new ArrayList<>();
             for (SecuritySummaryEntity s : history) {
-                if (s.getLastCalculatedAt() != null && s.getLastCalculatedAt().isBefore(cutoff)) {
-                    continue;
-                }
                 dataPoints.add(Map.of(
                         "date", s.getLastCalculatedAt() != null ? s.getLastCalculatedAt().toString() : "",
                         "totalVulnerabilities", s.getTotalVulns(),

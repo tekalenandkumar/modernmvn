@@ -24,7 +24,10 @@ public class DistributedLockRepository {
      *         session.
      */
     public boolean tryLock(String key) {
-        long hash = key.hashCode();
+        // Use a 64-bit hash instead of 32-bit String.hashCode() to reduce collision
+        // risk
+        long hash = java.util.UUID.nameUUIDFromBytes(key.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .getMostSignificantBits();
         return (Boolean) em.createNativeQuery("SELECT pg_try_advisory_lock(:key)")
                 .setParameter("key", hash)
                 .getSingleResult();
@@ -36,7 +39,8 @@ public class DistributedLockRepository {
      * @param key The lock key
      */
     public void unlock(String key) {
-        long hash = key.hashCode();
+        long hash = java.util.UUID.nameUUIDFromBytes(key.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                .getMostSignificantBits();
         em.createNativeQuery("SELECT pg_advisory_unlock(:key)")
                 .setParameter("key", hash)
                 .getSingleResult();
