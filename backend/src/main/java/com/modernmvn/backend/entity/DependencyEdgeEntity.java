@@ -9,7 +9,8 @@ import jakarta.persistence.*;
 @Entity
 @Table(name = "dependency_edges", indexes = {
         @Index(name = "idx_de_root", columnList = "root_version_id"),
-        @Index(name = "idx_de_root_depth", columnList = "root_version_id, depth")
+        @Index(name = "idx_de_root_depth", columnList = "root_version_id, depth"),
+        @Index(name = "idx_de_dep", columnList = "dependency_version_id") // enables fast reverse dep lookups
 })
 @IdClass(DependencyEdgeId.class)
 public class DependencyEdgeEntity {

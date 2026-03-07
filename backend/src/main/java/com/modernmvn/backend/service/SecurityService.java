@@ -180,7 +180,12 @@ public class SecurityService {
 
         return new VersionAssessment(
                 version, isRelease, timestamp,
-                report.totalVulnerabilities(), report.highestSeverity(),
+                report.totalVulnerabilities(),
+                report.criticalCount(),
+                report.highCount(),
+                report.mediumCount(),
+                report.lowCount(),
+                report.highestSeverity(),
                 stability, stabilityScore,
                 safety, safetyLabel);
     }

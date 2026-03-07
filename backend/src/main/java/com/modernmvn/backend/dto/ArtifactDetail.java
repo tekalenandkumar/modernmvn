@@ -8,15 +8,16 @@ import java.util.Map;
  * and transitive dependency metadata.
  */
 public record ArtifactDetail(
-        String groupId,
-        String artifactId,
-        String version,
-        String packaging,
-        String description,
-        String url,
-        String name,
-        List<ArtifactInfo.LicenseInfo> licenses,
-        Map<String, String> dependencySnippets,
-        int dependencyCount,
-        long timestamp) {
+                String groupId,
+                String artifactId,
+                String version,
+                String packaging,
+                String description,
+                String url,
+                String name,
+                List<ArtifactInfo.LicenseInfo> licenses,
+                Map<String, String> dependencySnippets,
+                int dependencyCount,
+                int directDependencyCount,
+                long timestamp) {
 }

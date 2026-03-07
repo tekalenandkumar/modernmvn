@@ -40,6 +40,7 @@ public class ArtifactIndexingService {
     private static final long STALENESS_HOURS = 24;
     private static final String SEARCH_API = "https://search.maven.org/solrsearch/select";
     private static final int MAX_VERSIONS_TO_INDEX = 500;
+    private static final String USER_AGENT = "ModernMvnCrawler/1.0 (https://modernmvn.com; contact@modernmvn.com)";
 
     private final MavenResolutionService resolutionService;
     private final SecurityService securityService;
@@ -198,9 +199,14 @@ public class ArtifactIndexingService {
                 .orElseThrow(() -> new IllegalStateException("Version lost during indexing: " + versionId));
 
         DependencyNode root = result.root();
-        int depCount = countTotalDependencies(root);
-        av.setDependencyCount(depCount);
-        meterRegistry.summary("dependency_graph.size").record(depCount);
+        int transitiveCount = countTotalDependencies(root);
+        int directCount = (int) root.children().size();
+
+        av.setDependencyCount(transitiveCount);
+        av.setDirectDependencyCount(directCount);
+
+        meterRegistry.summary("dependency_graph.size").record(transitiveCount);
+        meterRegistry.summary("direct_dependencies.count").record(directCount);
 
         // Delete old edges
         edgeRepository.deleteByRootVersionId(av.getId());
@@ -345,10 +351,31 @@ public class ArtifactIndexingService {
     }
 
     @Transactional(readOnly = true)
+    public int getDirectDependencyCountFromDb(String groupId, String artifactId, String version) {
+        return versionRepository.findByGav(groupId, artifactId, version)
+                .map(ArtifactVersionEntity::getDirectDependencyCount)
+                .orElse(0);
+    }
+
+    @Transactional(readOnly = true)
     public boolean isVersionSafeFromDb(String groupId, String artifactId, String version) {
         return summaryRepository.findByGav(groupId, artifactId, version)
                 .map(s -> s.getCriticalCount() == 0 && s.getHighCount() == 0)
                 .orElse(true); // default to safe if unknown
+    }
+
+    /**
+     * Returns the number of distinct root artifacts that declare this artifact as a
+     * dependency.
+     * This is the DB-backed "Used By" count — powered by the crawler-populated
+     * dependency_edges table.
+     * Falls back to 0 if the version is not yet indexed.
+     */
+    @Transactional(readOnly = true)
+    public int getReverseDependencyCountFromDb(String groupId, String artifactId, String version) {
+        return versionRepository.findByGav(groupId, artifactId, version)
+                .map(av -> (int) edgeRepository.countReverseDependencies(av.getId()))
+                .orElse(0);
     }
 
     // ──────────────────────── Helpers ───────────────────────────────
@@ -388,7 +415,12 @@ public class ArtifactIndexingService {
         String url = SEARCH_API + "?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
                 + "&core=gav&rows=100&wt=json";
 
-        HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("User-Agent", USER_AGENT)
+                .header("Accept", "application/json")
+                .GET()
+                .build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() != 200)

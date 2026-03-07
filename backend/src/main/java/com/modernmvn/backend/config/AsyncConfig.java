@@ -11,13 +11,18 @@ import java.util.concurrent.Executor;
 @EnableAsync
 public class AsyncConfig {
 
-    @Bean(name = "asyncExecutor")
+    @Bean(name = { "asyncExecutor", "taskExecutor" })
+    @org.springframework.context.annotation.Primary
     public Executor asyncExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(8);
         executor.setMaxPoolSize(16);
-        executor.setQueueCapacity(100);
+        executor.setQueueCapacity(1000); // Handle bursts from crawler batches
         executor.setThreadNamePrefix("async-");
+        // Prevent RejectedExecutionException; the caller (scheduler thread) will run
+        // the task,
+        // which naturally provides backpressure.
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
         return executor;
     }

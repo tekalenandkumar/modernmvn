@@ -18,7 +18,8 @@ public record ArtifactInfo(
         String description,
         String url,
         List<LicenseInfo> licenses,
-        long lastUpdated) {
+        long lastUpdated,
+        int usedByCount) {
 
     public record LicenseInfo(String name, String url) {
     }

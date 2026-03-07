@@ -12,6 +12,7 @@ export interface ArtifactVersion {
     repository: string;
     isRelease: boolean;
     isRecommended: boolean;
+    vulnerabilityCount?: number | null;
 }
 
 export interface ArtifactInfo {
@@ -26,6 +27,7 @@ export interface ArtifactInfo {
     url: string | null;
     licenses: LicenseInfo[];
     lastUpdated: number;
+    usedByCount: number;
 }
 
 export interface ArtifactDetail {
@@ -39,6 +41,7 @@ export interface ArtifactDetail {
     licenses: LicenseInfo[];
     dependencySnippets: Record<string, string>;
     dependencyCount: number;
+    directDependencyCount: number;
     timestamp: number;
 }
 

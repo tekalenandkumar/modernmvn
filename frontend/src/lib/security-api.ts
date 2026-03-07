@@ -39,6 +39,10 @@ export interface VersionAssessment {
     isRelease: boolean;
     timestamp: number;
     vulnerabilityCount: number;
+    criticalCount: number;
+    highCount: number;
+    mediumCount: number;
+    lowCount: number;
     highestSeverity: Severity | null;
     stabilityGrade: StabilityGrade;
     stabilityScore: number;

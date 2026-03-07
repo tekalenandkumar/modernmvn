@@ -197,6 +197,66 @@ public class SecurityController {
     }
 
     /**
+     * Get a dynamic SVG safety badge for a specific GAV.
+     * GET /api/security/{groupId}/{artifactId}/{version}/badge.svg
+     */
+    @GetMapping(value = "/{groupId}/{artifactId}/{version}/badge.svg", produces = "image/svg+xml")
+    public ResponseEntity<String> getSafetyBadgeSvg(
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String groupId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String artifactId,
+            @PathVariable @Pattern(regexp = "[a-zA-Z0-9._-]+") String version) {
+        try {
+            VulnerabilityReport report = getReportFromDbOrLive(groupId, artifactId, version);
+
+            String label;
+            String color;
+
+            if (report == null) {
+                label = "SCANNING";
+                color = "#ffa502";
+            } else if (report.criticalCount() > 0 || report.highCount() > 0) {
+                label = "VULNERABLE";
+                color = "#ff4757";
+            } else if (report.mediumCount() > 0 || report.lowCount() > 0) {
+                label = "CAUTION";
+                color = "#ffa502";
+            } else {
+                label = "SAFE";
+                color = "#2ed573";
+            }
+
+            String svg = String.format(
+                    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"120\" height=\"20\">" +
+                            "<linearGradient id=\"b\" x2=\"0\" y2=\"100%%\">" +
+                            "<stop offset=\"0\" stop-color=\"#bbb\" stop-opacity=\".1\"/>" +
+                            "<stop offset=\"1\" stop-opacity=\".1\"/>" +
+                            "</linearGradient>" +
+                            "<mask id=\"a\"><rect width=\"120\" height=\"20\" rx=\"3\" fill=\"#fff\"/></mask>" +
+                            "<g mask=\"url(#a)\">" +
+                            "<path fill=\"#555\" d=\"M0 0h80v20H0z\"/>" +
+                            "<path fill=\"%s\" d=\"M80 0h40v20H80z\"/>" +
+                            "<path fill=\"url(#b)\" d=\"M0 0h120v20H0z\"/>" +
+                            "</g>" +
+                            "<g fill=\"#fff\" text-anchor=\"middle\" font-family=\"DejaVu Sans,Verdana,Geneva,sans-serif\" font-size=\"11\">"
+                            +
+                            "<text x=\"40\" y=\"15\" fill=\"#010101\" fill-opacity=\".3\">security</text>" +
+                            "<text x=\"40\" y=\"14\">security</text>" +
+                            "<text x=\"100\" y=\"15\" fill=\"#010101\" fill-opacity=\".3\">%s</text>" +
+                            "<text x=\"100\" y=\"14\">%s</text>" +
+                            "</g>" +
+                            "</svg>",
+                    color, label, label);
+
+            return ResponseEntity.ok()
+                    .header("Cache-Control", "public, max-age=3600")
+                    .body(svg);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body("");
+        }
+    }
+
+    /**
      * Historical vulnerability trend for an artifact.
      * Returns all scan data points within the given time window, sorted by date.
      * Powered by PostgreSQL persistence layer.
@@ -343,7 +403,12 @@ public class SecurityController {
 
         return new VersionAssessment(
                 version, isRelease, timestamp,
-                report.totalVulnerabilities(), report.highestSeverity(),
+                report.totalVulnerabilities(),
+                report.criticalCount(),
+                report.highCount(),
+                report.mediumCount(),
+                report.lowCount(),
+                report.highestSeverity(),
                 stability, stabilityScore,
                 safety, safetyLabel);
     }

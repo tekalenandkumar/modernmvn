@@ -44,7 +44,10 @@ public class ArtifactVersionEntity {
     private String errorMessage;
 
     @Column(name = "dependency_count")
-    private int dependencyCount;
+    private Integer dependencyCount;
+
+    @Column(name = "direct_dependency_count")
+    private Integer directDependencyCount;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
@@ -116,11 +119,19 @@ public class ArtifactVersionEntity {
     }
 
     public int getDependencyCount() {
-        return dependencyCount;
+        return dependencyCount != null ? dependencyCount : 0;
     }
 
     public void setDependencyCount(int dependencyCount) {
         this.dependencyCount = dependencyCount;
+    }
+
+    public int getDirectDependencyCount() {
+        return directDependencyCount != null ? directDependencyCount : 0;
+    }
+
+    public void setDirectDependencyCount(int directDependencyCount) {
+        this.directDependencyCount = directDependencyCount;
     }
 
     public Instant getCreatedAt() {

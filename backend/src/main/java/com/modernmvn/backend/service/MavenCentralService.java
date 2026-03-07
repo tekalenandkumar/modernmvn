@@ -8,6 +8,8 @@ import com.modernmvn.backend.dto.ArtifactInfo.LicenseInfo;
 import com.modernmvn.backend.dto.ArtifactVersion;
 import com.modernmvn.backend.dto.SearchResult;
 import com.modernmvn.backend.dto.SearchResult.SearchResultItem;
+import com.modernmvn.backend.repository.ArtifactVersionRepository;
+import com.modernmvn.backend.repository.SecuritySummaryRepository;
 
 import org.apache.maven.model.License;
 import org.apache.maven.model.Model;
@@ -37,8 +39,11 @@ public class MavenCentralService {
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private ArtifactIndexingService indexingService; // setter-injected to avoid circular dependency
+    private ArtifactVersionRepository artifactVersionRepository; // optional — for per-version vuln counts
+    private SecuritySummaryRepository securitySummaryRepository; // optional — for per-version vuln counts
 
     private static final String SEARCH_API = "https://search.maven.org/solrsearch/select";
+
     private static final String REPO_BASE = "https://repo1.maven.org/maven2";
 
     // Pre-release version pattern
@@ -86,6 +91,16 @@ public class MavenCentralService {
         this.indexingService = indexingService;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setArtifactVersionRepository(ArtifactVersionRepository artifactVersionRepository) {
+        this.artifactVersionRepository = artifactVersionRepository;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSecuritySummaryRepository(SecuritySummaryRepository securitySummaryRepository) {
+        this.securitySummaryRepository = securitySummaryRepository;
+    }
+
     // ──────────────────────── Public API ────────────────────────
 
     /**
@@ -110,12 +125,19 @@ public class MavenCentralService {
 
             PomMetadata pomMeta = fetchPomMetadata(groupId, artifactId, latestVersion);
 
-            // Mark the recommended version
+            // Mark the recommended version and enrich with vuln count from DB (best-effort)
             versions = versions.stream()
-                    .map(v -> new ArtifactVersion(
-                            v.version(), v.packaging(), v.timestamp(), v.repository(),
-                            v.isRelease(), v.version().equals(recommended)))
+                    .map(v -> {
+                        boolean isRec = v.version().equals(recommended);
+                        Integer vulnCount = getVulnCountForVersion(groupId, artifactId, v.version());
+                        return new ArtifactVersion(
+                                v.version(), v.packaging(), v.timestamp(), v.repository(),
+                                v.isRelease(), isRec, vulnCount);
+                    })
                     .collect(Collectors.toList());
+
+            // 5. Fetch Used By count from DB
+            int usedByCount = getReverseDependencyCount(groupId, artifactId);
 
             return new ArtifactInfo(
                     groupId,
@@ -128,7 +150,8 @@ public class MavenCentralService {
                     pomMeta.description(),
                     pomMeta.url(),
                     pomMeta.licenses(),
-                    summaryDoc.has("timestamp") ? summaryDoc.get("timestamp").asLong() : 0);
+                    summaryDoc.has("timestamp") ? summaryDoc.get("timestamp").asLong() : 0,
+                    usedByCount);
         } catch (Exception e) {
             throw new RuntimeException("Failed to fetch artifact info for "
                     + groupId + ":" + artifactId + " — " + e.getMessage(), e);
@@ -148,10 +171,12 @@ public class MavenCentralService {
 
             // Resolve dependency count via indexing (DB-backed, Aether only on first hit)
             int depCount = 0;
+            int directDepCount = 0;
             try {
                 if (indexingService != null) {
                     indexingService.ensureIndexed(groupId, artifactId, version);
                     depCount = indexingService.getDependencyCountFromDb(groupId, artifactId, version);
+                    directDepCount = indexingService.getDirectDependencyCountFromDb(groupId, artifactId, version);
 
                     // Fire-and-forget: index ALL versions in background
                     indexingService.indexAllVersionsAsync(groupId, artifactId);
@@ -172,6 +197,7 @@ public class MavenCentralService {
                     pomMeta.licenses(),
                     snippets,
                     depCount,
+                    directDepCount,
                     timestamp);
         } catch (Exception e) {
             throw new RuntimeException("Failed to fetch artifact detail for "
@@ -395,22 +421,38 @@ public class MavenCentralService {
     }
 
     /**
-     * Get the count of artifacts that depend on the given artifact.
-     * Uses rows=0 for efficiency — only returns numFound.
+     * Get the count of artifacts that declare this artifact as a dependency.
+     * DB-backed via dependency_edges — populated proactively by the Maven crawler.
+     * Falls back to 0 until the crawler has indexed dependent artifacts.
      */
     @Cacheable(value = "reverseDepsCount", key = "#groupId + ':' + #artifactId")
     public int getReverseDependencyCount(String groupId, String artifactId) {
         try {
-            String url = SEARCH_API + "?q=d:%22" + encode(groupId) + ":" + encode(artifactId)
-                    + "%22&rows=0&wt=json";
-
-            String body = httpGet(url);
-            JsonNode root = objectMapper.readTree(body);
-            return root.path("response").path("numFound").asInt(0);
+            String latestVersion = getLatestVersion(groupId, artifactId);
+            if (latestVersion == null || latestVersion.isBlank())
+                return 0;
+            return indexingService.getReverseDependencyCountFromDb(groupId, artifactId, latestVersion);
         } catch (Exception e) {
-            System.err.println("Failed to fetch reverse dependency count for " + groupId + ":" + artifactId + ": "
-                    + e.getMessage());
             return 0;
+        }
+    }
+
+    /**
+     * Look up the vulnerability count for a specific version from the
+     * security_summaries table.
+     * Returns null if the version hasn't been indexed yet (frontend shows no
+     * indicator).
+     */
+    private Integer getVulnCountForVersion(String groupId, String artifactId, String version) {
+        if (artifactVersionRepository == null || securitySummaryRepository == null)
+            return null;
+        try {
+            return artifactVersionRepository.findByGav(groupId, artifactId, version)
+                    .flatMap(av -> securitySummaryRepository.findByArtifactVersionId(av.getId()))
+                    .map(s -> (Integer) s.getTotalVulns())
+                    .orElse(null);
+        } catch (Exception e) {
+            return null;
         }
     }
 

@@ -50,6 +50,7 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
     const [showAllVersions, setShowAllVersions] = useState(false);
     const [versionFilter, setVersionFilter] = useState('');
     const [showPreRelease, setShowPreRelease] = useState(false);
+    const [useLatestForSnippet, setUseLatestForSnippet] = useState(false);
 
     // Used By state
     const [usedByCount, setUsedByCount] = useState<number>(0);
@@ -64,12 +65,16 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
 
     const currentVersion = selectedVersion || info.latestReleaseVersion || info.latestVersion;
 
-    // Fetch "Used By" count on mount
+    // Fetch "Used By" count on mount (fallback if not in info)
     useEffect(() => {
-        fetchReverseDependencyCount(info.groupId, info.artifactId)
-            .then(setUsedByCount)
-            .catch(() => setUsedByCount(0));
-    }, [info.groupId, info.artifactId]);
+        if (info.usedByCount !== undefined) {
+            setUsedByCount(info.usedByCount);
+        } else {
+            fetchReverseDependencyCount(info.groupId, info.artifactId)
+                .then(setUsedByCount)
+                .catch(() => setUsedByCount(0));
+        }
+    }, [info.groupId, info.artifactId, info.usedByCount]);
 
     // Fetch "Used By" items when expanded
     useEffect(() => {
@@ -108,12 +113,24 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
     // Badge URLs — use relative /badge/ path which is proxied via Next.js rewrites
     const badgeUrl = `/badge/${info.groupId}/${info.artifactId}`;
     const artifactPageUrl = `https://modernmvn.com/artifact/${info.groupId}/${info.artifactId}`;
+    const securityBadgeUrl = `/api/security/${info.groupId}/${info.artifactId}/${currentVersion}/badge.svg`;
 
     const badgeSnippets = {
         markdown: `[![Maven Version](${badgeUrl})](${artifactPageUrl})`,
         html: `<a href="${artifactPageUrl}"><img src="${badgeUrl}" alt="Maven Version" /></a>`,
         rst: `.. image:: ${badgeUrl}\n   :target: ${artifactPageUrl}\n   :alt: Maven Version`,
     };
+
+    const securityBadgeSnippets = {
+        markdown: `[![Security](${securityBadgeUrl})](${artifactPageUrl})`,
+        html: `<a href="${artifactPageUrl}"><img src="${securityBadgeUrl}" alt="Security" /></a>`,
+        rst: `.. image:: ${securityBadgeUrl}\n   :target: ${artifactPageUrl}\n   :alt: Security`,
+    };
+
+    // Version to use in snippets — recommended (default) or latest
+    const snippetVersion = useLatestForSnippet
+        ? (info.latestVersion || currentVersion)
+        : (info.latestReleaseVersion || currentVersion);
 
     // JSON-LD structured data
     const jsonLd = {
@@ -180,10 +197,10 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                                     <Package size={28} className="text-blue-400" />
                                 </div>
                                 <div>
-                                    <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
+                                    <h1 className="text-3xl md:text-3xl font-extrabold tracking-tight">
+                                        <span className="text-gray-500 font-mono font-normal">{info.groupId}:</span>
                                         {info.artifactId}
                                     </h1>
-                                    <p className="text-gray-400 font-mono text-sm mt-0.5">{info.groupId}</p>
                                 </div>
                             </div>
 
@@ -217,7 +234,7 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                                     </span>
                                 )}
                                 {/* Used By badge */}
-                                {usedByCount > 0 && (
+                                {usedByCount >= 0 && (
                                     <button
                                         onClick={() => setUsedByExpanded(!usedByExpanded)}
                                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-cyan-900/30 text-cyan-300 border border-cyan-800/50 hover:bg-cyan-900/50 transition-colors cursor-pointer"
@@ -265,12 +282,37 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
 
                         {/* Dependency Snippets */}
                         <section className="rounded-xl border border-gray-800 bg-gray-950/50 overflow-hidden">
-                            <div className="px-6 py-4 border-b border-gray-800 flex items-center gap-2">
-                                <Layers size={18} className="text-blue-400" />
-                                <h2 className="font-bold text-lg">
-                                    Add to your project
-                                    <span className="text-gray-500 font-mono text-xs ml-2">{currentVersion}</span>
-                                </h2>
+                            <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                    <Layers size={18} className="text-blue-400" />
+                                    <h2 className="font-bold text-lg">
+                                        Add to your project
+                                        <span className="text-gray-500 font-mono text-xs ml-2">{snippetVersion}</span>
+                                    </h2>
+                                </div>
+                                {/* Latest / Recommended toggle */}
+                                {info.latestReleaseVersion && info.latestVersion && info.latestReleaseVersion !== info.latestVersion && (
+                                    <div className="flex items-center gap-1 rounded-lg bg-gray-900 border border-gray-800 p-1 text-xs">
+                                        <button
+                                            onClick={() => setUseLatestForSnippet(false)}
+                                            className={`px-2.5 py-1 rounded-md font-medium transition-colors ${!useLatestForSnippet
+                                                    ? 'bg-green-900/60 text-green-300 border border-green-800/50'
+                                                    : 'text-gray-500 hover:text-gray-300'
+                                                }`}
+                                        >
+                                            ✓ Recommended
+                                        </button>
+                                        <button
+                                            onClick={() => setUseLatestForSnippet(true)}
+                                            className={`px-2.5 py-1 rounded-md font-medium transition-colors ${useLatestForSnippet
+                                                    ? 'bg-blue-900/60 text-blue-300 border border-blue-800/50'
+                                                    : 'text-gray-500 hover:text-gray-300'
+                                                }`}
+                                        >
+                                            Latest
+                                        </button>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Snippet tabs */}
@@ -289,15 +331,15 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                                 ))}
                             </div>
 
-                            {/* Snippet code */}
+                            {/* Snippet code — version is swapped based on toggle */}
                             <div className="relative">
                                 <pre className="p-6 text-sm font-mono text-gray-200 overflow-x-auto leading-relaxed">
-                                    {detail?.dependencySnippets?.[activeSnippet] ||
-                                        `<dependency>\n    <groupId>${info.groupId}</groupId>\n    <artifactId>${info.artifactId}</artifactId>\n    <version>${currentVersion}</version>\n</dependency>`}
+                                    {(detail?.dependencySnippets?.[activeSnippet] || `<dependency>\n    <groupId>${info.groupId}</groupId>\n    <artifactId>${info.artifactId}</artifactId>\n    <version>${currentVersion}</version>\n</dependency>`)
+                                        .replace(currentVersion, snippetVersion)}
                                 </pre>
                                 <button
                                     onClick={() => copyToClipboard(
-                                        detail?.dependencySnippets?.[activeSnippet] || '',
+                                        (detail?.dependencySnippets?.[activeSnippet] || '').replace(currentVersion, snippetVersion),
                                         activeSnippet
                                     )}
                                     className="absolute top-4 right-4 p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-all"
@@ -318,9 +360,10 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                                     Version Details — {detail.version}
                                 </h2>
 
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                                     <InfoCard label="Packaging" value={detail.packaging} />
-                                    <InfoCard label="Dependencies" value={String(detail.dependencyCount)} />
+                                    <InfoCard label="Direct Deps" value={String(detail.directDependencyCount || 0)} />
+                                    <InfoCard label="Total Deps" value={String(detail.dependencyCount)} />
                                     <InfoCard label="Published" value={formatDate(detail.timestamp)} />
                                     <InfoCard
                                         label="License"
@@ -416,51 +459,7 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                             </section>
                         )}
 
-                        {/* Badges Section */}
-                        <section className="rounded-xl border border-gray-800 bg-gray-950/50 overflow-hidden">
-                            <div className="px-6 py-4 border-b border-gray-800 flex items-center gap-2">
-                                <Image size={18} className="text-amber-400" />
-                                <h2 className="font-bold text-lg">Badges</h2>
-                            </div>
-                            <div className="p-6 space-y-5">
-                                {/* Badge preview */}
-                                <div className="flex items-center gap-4">
-                                    <span className="text-xs text-gray-500">Preview:</span>
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img
-                                        src={badgeUrl}
-                                        alt={`Maven version badge for ${info.artifactId}`}
-                                        className="h-5"
-                                    />
-                                </div>
-
-                                {/* Badge code snippets */}
-                                <div className="space-y-3">
-                                    {(Object.entries(badgeSnippets) as [string, string][]).map(([format, code]) => (
-                                        <div key={format}>
-                                            <div className="flex items-center justify-between mb-1">
-                                                <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">{format}</span>
-                                                <button
-                                                    onClick={() => copyBadgeCode(code, format)}
-                                                    className="text-xs text-gray-500 hover:text-white flex items-center gap-1 transition-colors"
-                                                >
-                                                    {copiedBadge === format ? (
-                                                        <><Check size={12} className="text-green-400" /> Copied</>
-                                                    ) : (
-                                                        <><Copy size={12} /> Copy</>
-                                                    )}
-                                                </button>
-                                            </div>
-                                            <pre className="px-4 py-2.5 rounded-lg bg-gray-900 border border-gray-800 text-xs font-mono text-gray-400 overflow-x-auto whitespace-pre-wrap break-all">
-                                                {code}
-                                            </pre>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </section>
-
-                        {/* Security & Version Intelligence */}
+                        {/* Security & Version Intelligence — moved above Badges per PR_Review suggestion */}
                         <div className="space-y-6">
                             <VulnerabilityPanel
                                 groupId={info.groupId}
@@ -473,6 +472,90 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                                 artifactId={info.artifactId}
                             />
                         </div>
+
+                        {/* Badges Section */}
+                        <section className="rounded-xl border border-gray-800 bg-gray-950/50 overflow-hidden">
+                            <div className="px-6 py-4 border-b border-gray-800 flex items-center gap-2">
+                                <Image size={18} className="text-amber-400" />
+                                <h2 className="font-bold text-lg">Badges</h2>
+                            </div>
+                            <div className="p-6 space-y-8">
+                                {/* Version Badge */}
+                                <div>
+                                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Version Badge</h3>
+                                    <div className="flex items-center gap-4 mb-4">
+                                        <span className="text-xs text-gray-500">Preview:</span>
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img
+                                            src={badgeUrl}
+                                            alt={`Maven version badge for ${info.artifactId}`}
+                                            className="h-5"
+                                        />
+                                    </div>
+                                    <div className="space-y-3">
+                                        {(Object.entries(badgeSnippets) as [string, string][]).map(([format, code]) => (
+                                            <div key={format}>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">{format}</span>
+                                                    <button
+                                                        onClick={() => copyBadgeCode(code, format)}
+                                                        className="text-xs text-gray-500 hover:text-white flex items-center gap-1 transition-colors"
+                                                    >
+                                                        {copiedBadge === format ? (
+                                                            <><Check size={12} className="text-green-400" /> Copied</>
+                                                        ) : (
+                                                            <><Copy size={12} /> Copy</>
+                                                        )}
+                                                    </button>
+                                                </div>
+                                                <pre className="px-4 py-2.5 rounded-lg bg-gray-900 border border-gray-800 text-xs font-mono text-gray-400 overflow-x-auto whitespace-pre-wrap break-all">
+                                                    {code}
+                                                </pre>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Security Badge — surfaces the /badge.svg API in the UI */}
+                                <div className="border-t border-gray-800 pt-6">
+                                    <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                                        <Shield size={12} className="text-green-400" />
+                                        Security Badge
+                                    </h3>
+                                    <div className="flex items-center gap-4 mb-4">
+                                        <span className="text-xs text-gray-500">Preview:</span>
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img
+                                            src={securityBadgeUrl}
+                                            alt={`Security badge for ${info.artifactId}`}
+                                            className="h-5"
+                                        />
+                                    </div>
+                                    <div className="space-y-3">
+                                        {(Object.entries(securityBadgeSnippets) as [string, string][]).map(([format, code]) => (
+                                            <div key={`sec-${format}`}>
+                                                <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-xs font-medium text-gray-400 uppercase tracking-wider">{format}</span>
+                                                    <button
+                                                        onClick={() => copyBadgeCode(code, `sec-${format}`)}
+                                                        className="text-xs text-gray-500 hover:text-white flex items-center gap-1 transition-colors"
+                                                    >
+                                                        {copiedBadge === `sec-${format}` ? (
+                                                            <><Check size={12} className="text-green-400" /> Copied</>
+                                                        ) : (
+                                                            <><Copy size={12} /> Copy</>
+                                                        )}
+                                                    </button>
+                                                </div>
+                                                <pre className="px-4 py-2.5 rounded-lg bg-gray-900 border border-gray-800 text-xs font-mono text-gray-400 overflow-x-auto whitespace-pre-wrap break-all">
+                                                    {code}
+                                                </pre>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
                     </div>
 
                     {/* RIGHT: Versions List */}
@@ -588,19 +671,23 @@ function VersionRow({
     artifactId: string;
     isActive: boolean;
 }) {
+    // Derive safety indicator from version data
+    const isSafe = v.vulnerabilityCount === 0 || v.vulnerabilityCount === undefined || v.vulnerabilityCount === null;
+    const hasVulns = v.vulnerabilityCount !== undefined && v.vulnerabilityCount !== null && v.vulnerabilityCount > 0;
+
     return (
         <Link
             href={`/artifact/${groupId}/${artifactId}/${v.version}`}
             className={`flex items-center justify-between px-5 py-3 text-sm hover:bg-gray-800/40 transition-colors group ${isActive ? 'bg-blue-950/30 border-l-2 border-l-blue-500' : ''
                 }`}
         >
-            <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
                 <span className={`font-mono font-medium truncate ${isActive ? 'text-blue-300' : 'text-gray-200'}`}>
                     {v.version}
                 </span>
                 {v.isRecommended && (
                     <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-900/40 text-green-300 border border-green-800/50 flex-shrink-0">
-                        RECOMMENDED
+                        REC
                     </span>
                 )}
                 {!v.isRelease && (
@@ -609,9 +696,21 @@ function VersionRow({
                     </span>
                 )}
             </div>
-            <span className="text-xs text-gray-600 group-hover:text-gray-400 transition-colors flex-shrink-0 ml-2">
-                {formatDate(v.timestamp)}
-            </span>
+            <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                {/* Security indicator per version */}
+                {hasVulns ? (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-900/30 text-red-400 border border-red-800/40" title={`${v.vulnerabilityCount} vulnerabilities`}>
+                        ⚠ {v.vulnerabilityCount}
+                    </span>
+                ) : isSafe && v.isRelease ? (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-900/20 text-green-500 border border-green-900/40" title="No known vulnerabilities">
+                        SAFE
+                    </span>
+                ) : null}
+                <span className="text-xs text-gray-600 group-hover:text-gray-400 transition-colors">
+                    {formatDate(v.timestamp)}
+                </span>
+            </div>
         </Link>
     );
 }

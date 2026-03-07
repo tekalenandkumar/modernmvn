@@ -21,6 +21,10 @@ public record VersionIntelligence(
             long timestamp,
             // Security
             int vulnerabilityCount,
+            int criticalCount,
+            int highCount,
+            int mediumCount,
+            int lowCount,
             SecurityAdvisory.Severity highestSeverity,
             // Stability
             StabilityGrade stabilityGrade,
