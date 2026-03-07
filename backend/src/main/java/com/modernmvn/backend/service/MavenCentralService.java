@@ -14,6 +14,8 @@ import com.modernmvn.backend.repository.SecuritySummaryRepository;
 import org.apache.maven.model.License;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.io.xpp3.MavenXpp3Reader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
@@ -35,6 +37,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class MavenCentralService {
+
+    private static final Logger log = LoggerFactory.getLogger(MavenCentralService.class);
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
@@ -718,6 +722,10 @@ public class MavenCentralService {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
+            String body = response.body();
+            String snippet = body != null && body.length() > 1000 ? body.substring(0, 997) + "..." : body;
+            log.error("External service failure: HTTP {} from {}. Response: {}",
+                    response.statusCode(), url, snippet);
             throw new RuntimeException("HTTP " + response.statusCode() + " from " + url);
         }
         return response.body();

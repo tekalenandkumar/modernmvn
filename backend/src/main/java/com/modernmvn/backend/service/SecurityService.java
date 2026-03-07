@@ -364,6 +364,10 @@ public class SecurityService {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
+            String body = response.body();
+            String snippet = body != null && body.length() > 500 ? body.substring(0, 497) + "..." : body;
+            log.error("OSV API failure: HTTP {} for {}:{}:{}. Response: {}",
+                    response.statusCode(), groupId, artifactId, version, snippet);
             return List.of(); // graceful degradation
         }
 

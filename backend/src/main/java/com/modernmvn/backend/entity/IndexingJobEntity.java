@@ -34,6 +34,12 @@ public class IndexingJobEntity {
     @Column(nullable = false)
     private Instant updatedAt;
 
+    @Column(name = "retry_count", nullable = false)
+    private int retryCount = 0;
+
+    @Column(name = "last_error", length = 1000)
+    private String lastError;
+
     public IndexingJobEntity() {
     }
 
@@ -44,6 +50,7 @@ public class IndexingJobEntity {
         this.status = IndexingJobStatus.PENDING;
         this.createdAt = Instant.now();
         this.updatedAt = Instant.now();
+        this.retryCount = 0;
     }
 
     public Long getId() {
@@ -77,5 +84,29 @@ public class IndexingJobEntity {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public int getRetryCount() {
+        return retryCount;
+    }
+
+    public void setRetryCount(int retryCount) {
+        this.retryCount = retryCount;
+        this.updatedAt = Instant.now();
+    }
+
+    public void incrementRetryCount() {
+        this.retryCount++;
+        this.updatedAt = Instant.now();
+    }
+
+    public String getLastError() {
+        return lastError;
+    }
+
+    public void setLastError(String lastError) {
+        this.lastError = lastError != null && lastError.length() > 1000 ? lastError.substring(0, 997) + "..."
+                : lastError;
+        this.updatedAt = Instant.now();
     }
 }

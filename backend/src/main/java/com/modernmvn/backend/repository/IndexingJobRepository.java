@@ -12,6 +12,7 @@ import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -30,6 +31,8 @@ public interface IndexingJobRepository extends JpaRepository<IndexingJobEntity, 
     @QueryHints({ @QueryHint(name = "jakarta.persistence.lock.timeout", value = "-2") })
     @Query("SELECT j FROM IndexingJobEntity j WHERE j.status = :status ORDER BY j.createdAt ASC")
     List<IndexingJobEntity> findPendingJobsWithLock(@Param("status") IndexingJobStatus status, Pageable pageable);
+
+    List<IndexingJobEntity> findByStatusAndUpdatedAtBefore(IndexingJobStatus status, Instant timeout);
 
     long countByStatus(IndexingJobStatus status);
 }

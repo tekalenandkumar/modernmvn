@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Propagation;
@@ -269,16 +270,114 @@ public class ArtifactIndexingService {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public List<IndexingJobEntity> fetchAndClaimJobs(int limit) {
+        List<IndexingJobEntity> jobs = jobRepository.findPendingJobsWithLock(IndexingJobStatus.PENDING,
+                PageRequest.of(0, limit));
+
+        for (IndexingJobEntity job : jobs) {
+            job.setStatus(IndexingJobStatus.PROCESSING);
+        }
+
+        return jobRepository.saveAllAndFlush(jobs);
+    }
+
     public void processJob(IndexingJobEntity job) {
+        log.info("Processing job {}:{}:{} (ID: {})", job.getGroupId(), job.getArtifactId(), job.getVersion(),
+                job.getId());
+
+        if (!self.markJobAsProcessing(job.getId())) {
+            log.warn("Job {} already processing or missing", job.getId());
+            return;
+        }
+
+        processClaimedJob(job);
+    }
+
+    /**
+     * Internal method to process a job that is already in PROCESSING state.
+     */
+    public void processClaimedJob(IndexingJobEntity job) {
         try {
             ensureIndexed(job.getGroupId(), job.getArtifactId(), job.getVersion());
-            job.setStatus(IndexingJobStatus.COMPLETE);
+            self.finalizeJob(job.getId(), IndexingJobStatus.COMPLETE, null);
         } catch (Exception e) {
             log.error("Job failed for {}:{}:{}: {}", job.getGroupId(), job.getArtifactId(), job.getVersion(),
                     e.getMessage());
-            job.setStatus(IndexingJobStatus.FAILED);
+            self.finalizeJob(job.getId(), IndexingJobStatus.FAILED, e.getMessage());
         }
-        jobRepository.save(job);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean markJobAsProcessing(long jobId) {
+        return jobRepository.findById(jobId).map(job -> {
+            if (job.getStatus() != IndexingJobStatus.PENDING)
+                return false;
+            job.setStatus(IndexingJobStatus.PROCESSING);
+            jobRepository.saveAndFlush(job);
+            return true;
+        }).orElse(false);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void finalizeJob(long jobId, IndexingJobStatus status, String error) {
+        jobRepository.findById(jobId).ifPresent(job -> {
+            job.setStatus(status);
+            if (error != null) {
+                job.setLastError(error);
+            }
+            jobRepository.save(job);
+        });
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void resetStuckJob(long jobId, int maxRetries) {
+        jobRepository.findById(jobId).ifPresent(job -> {
+            if (job.getRetryCount() < maxRetries) {
+                log.info("Resetting stuck job {} (Attempt {})", jobId, job.getRetryCount() + 1);
+                job.setStatus(IndexingJobStatus.PENDING);
+                job.incrementRetryCount();
+            } else {
+                log.error("Job {} exceeded max retries ({}), marking as FAILED", jobId, maxRetries);
+                job.setStatus(IndexingJobStatus.FAILED);
+                job.setLastError("Exceeded maximum retries: " + maxRetries);
+            }
+            jobRepository.save(job);
+        });
+    }
+
+    public List<IndexingJobEntity> findStuckJobs(int timeoutMinutes) {
+        Instant threshold = Instant.now().minus(timeoutMinutes, ChronoUnit.MINUTES);
+        return jobRepository.findByStatusAndUpdatedAtBefore(IndexingJobStatus.PROCESSING, threshold);
+    }
+
+    /**
+     * Finds and restores orphaned artifact_versions states by re-queuing them.
+     */
+    @Transactional
+    public void syncOrphanedVersions(int thresholdMinutes) {
+        Instant threshold = Instant.now().minus(thresholdMinutes, ChronoUnit.MINUTES);
+        List<ArtifactVersionEntity> orphans = versionRepository.findOrphanedVersions(threshold);
+
+        if (orphans.isEmpty()) {
+            return;
+        }
+
+        log.info("Found {} orphaned artifact versions to re-queue", orphans.size());
+        for (ArtifactVersionEntity orphan : orphans) {
+            String g = orphan.getArtifact().getGroupId();
+            String a = orphan.getArtifact().getArtifactId();
+            String v = orphan.getVersion();
+
+            log.info("Restoring orphaned version state for {}:{}:{} (ID: {})", g, a, v, orphan.getId());
+
+            // 1. Create a new pending job
+            IndexingJobEntity job = new IndexingJobEntity(g, a, v);
+            jobRepository.save(job);
+
+            // 2. Reset version status to PENDING so the worker picks it up cleanly
+            orphan.setIndexingStatus(IndexingJobStatus.PENDING);
+            versionRepository.save(orphan);
+        }
     }
 
     @Transactional
@@ -422,9 +521,13 @@ public class ArtifactIndexingService {
                 .GET()
                 .build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-        if (response.statusCode() != 200)
+        if (response.statusCode() != 200) {
+            String body = response.body();
+            String snippet = body != null && body.length() > 500 ? body.substring(0, 497) + "..." : body;
+            log.error("Maven Central versions expansion failure: HTTP {} for {}:{}. Response: {}",
+                    response.statusCode(), groupId, artifactId, snippet);
             return List.of();
+        }
 
         JsonNode root = objectMapper.readTree(response.body());
         List<String> versions = new ArrayList<>();
