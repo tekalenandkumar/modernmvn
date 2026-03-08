@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Modern Maven — Dependency Intelligence for Java',
-    template: '%s | Modern Maven',
+    default: 'modernmvn — Maven Dependency Intelligence',
+    template: '%s | modernmvn',
   },
   description: 'Modern Maven is a dependency intelligence tool for Java developers. Visualize dependency trees, detect conflicts, browse artifact metadata, and analyze POM files.',
   keywords: ['maven', 'java', 'dependency', 'artifact', 'pom', 'gradle', 'spring boot', 'dependency management'],

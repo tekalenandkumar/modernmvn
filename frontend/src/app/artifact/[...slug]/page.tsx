@@ -65,8 +65,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
         const info = await fetchArtifactInfo(groupId, artifactId);
         const desc = info.description || `Maven artifact ${coord} — versions, dependency snippets, and license information.`;
         const title = version
-            ? `${artifactId} ${version} — ${groupId} | Modern Maven`
-            : `${artifactId} — ${groupId} | Modern Maven`;
+            ? `${artifactId} ${version} Maven Dependency | ${groupId}`
+            : `${artifactId} Maven Dependency | ${groupId}`;
 
         return {
             title,
@@ -75,13 +75,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
                 title,
                 description: desc,
                 type: 'website',
-                siteName: 'Modern Maven',
+                siteName: 'modernmvn',
                 url: `/artifact/${groupId}/${artifactId}${version ? `/${version}` : ''}`,
             },
             alternates: {
                 canonical: `/artifact/${groupId}/${artifactId}${version ? `/${version}` : ''}`,
             },
-            other: { 'application-name': 'Modern Maven' },
+            other: { 'application-name': 'modernmvn' },
         };
     } catch {
         return {

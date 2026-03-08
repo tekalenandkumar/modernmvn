@@ -229,7 +229,7 @@ export default function DependencyTable({ rootNode }: DependencyTableProps) {
                                     <tr key={key} className="hover:bg-gray-800/50 transition-colors group">
                                         <td className="px-6 py-4 font-medium text-white">
                                             <Link
-                                                href={`/artifact/${dep.groupId}/${dep.artifactId}/${dep.version}`}
+                                                href={`/artifact/${dep.groupId}/${dep.artifactId}`}
                                                 className="flex items-center gap-2 hover:text-blue-400 transition-colors"
                                             >
                                                 <Package size={16} className="text-blue-500 group-hover:text-blue-400 transition-colors" />
@@ -238,7 +238,7 @@ export default function DependencyTable({ rootNode }: DependencyTableProps) {
                                         </td>
                                         <td className="px-6 py-4 font-mono">
                                             <Link
-                                                href={`/artifact/${dep.groupId}/${dep.artifactId}/${dep.version}`}
+                                                href={`/artifact/${dep.groupId}`}
                                                 className="hover:text-blue-400 transition-colors"
                                             >
                                                 {dep.groupId}
