@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import Link from 'next/link';
 import { DependencyNode } from '@/lib/api';
 import { Package, AlertTriangle, FileQuestion, ArrowUpDown, ArrowUp, ArrowDown, Search } from 'lucide-react';
 import SecurityBadge from '@/components/SecurityBadge';
@@ -226,15 +227,29 @@ export default function DependencyTable({ rootNode }: DependencyTableProps) {
                                 const key = `${dep.groupId}:${dep.artifactId}:${dep.version}-${index}`;
                                 return (
                                     <tr key={key} className="hover:bg-gray-800/50 transition-colors group">
-                                        <td className="px-6 py-4 font-medium text-white flex items-center gap-2">
-                                            <Package size={16} className="text-blue-500 group-hover:text-blue-400 transition-colors" />
-                                            {dep.artifactId}
+                                        <td className="px-6 py-4 font-medium text-white">
+                                            <Link
+                                                href={`/artifact/${dep.groupId}/${dep.artifactId}/${dep.version}`}
+                                                className="flex items-center gap-2 hover:text-blue-400 transition-colors"
+                                            >
+                                                <Package size={16} className="text-blue-500 group-hover:text-blue-400 transition-colors" />
+                                                {dep.artifactId}
+                                            </Link>
                                         </td>
-                                        <td className="px-6 py-4 font-mono">{dep.groupId}</td>
+                                        <td className="px-6 py-4 font-mono">
+                                            <Link
+                                                href={`/artifact/${dep.groupId}/${dep.artifactId}/${dep.version}`}
+                                                className="hover:text-blue-400 transition-colors"
+                                            >
+                                                {dep.groupId}
+                                            </Link>
+                                        </td>
                                         <td className="px-6 py-4">
-                                            <span className="font-mono text-blue-300 bg-blue-900/20 px-2 py-0.5 rounded text-xs border border-blue-900/50">
-                                                {dep.version}
-                                            </span>
+                                            <Link href={`/artifact/${dep.groupId}/${dep.artifactId}/${dep.version}`}>
+                                                <span className="font-mono text-blue-300 bg-blue-900/20 px-2 py-0.5 rounded text-xs border border-blue-900/50 hover:bg-blue-800/40 transition-colors cursor-pointer">
+                                                    {dep.version}
+                                                </span>
+                                            </Link>
                                         </td>
                                         <td className="px-6 py-4">
                                             <span className={`px-2 py-0.5 rounded text-xs border ${dep.scope === 'test' ? 'bg-green-900/20 text-green-300 border-green-900/50' :
