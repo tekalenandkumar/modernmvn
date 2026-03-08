@@ -31,6 +31,8 @@ export default function SecurityBadge({ groupId, artifactId, version, compact = 
 
     useEffect(() => {
         if (!groupId || !artifactId || !version) return;
+
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setLoading(true);
         setError(false);
         fetchSafetyBadge(groupId, artifactId, version)
@@ -77,7 +79,6 @@ export default function SecurityBadge({ groupId, artifactId, version, compact = 
 
     const color = safetyColor(badge.indicator);
     const bg = safetyBgColor(badge.indicator);
-    const Icon = getIcon(badge.indicator);
 
     return (
         <span
@@ -103,7 +104,7 @@ export default function SecurityBadge({ groupId, artifactId, version, compact = 
             }}
             title={badge.label}
         >
-            <Icon size={compact ? 11 : 13} />
+            {React.createElement(getIcon(badge.indicator), { size: compact ? 11 : 13 })}
             {compact
                 ? (badge.vulnerabilityCount > 0 ? badge.vulnerabilityCount : '✓')
                 : badge.label}

@@ -30,7 +30,7 @@ import {
     Layers,
     Search,
     Users,
-    Image,
+    Image as ImageIcon,
     ArrowRight,
     Loader2,
 } from 'lucide-react';
@@ -53,7 +53,7 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
     const [useLatestForSnippet, setUseLatestForSnippet] = useState(false);
 
     // Used By state
-    const [usedByCount, setUsedByCount] = useState<number>(0);
+    const [usedByCount, setUsedByCount] = useState<number>(info.usedByCount || 0);
     const [usedByItems, setUsedByItems] = useState<ReverseDependencyItem[]>([]);
     const [usedByLoading, setUsedByLoading] = useState(false);
     const [usedByPage, setUsedByPage] = useState(0);
@@ -67,9 +67,7 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
 
     // Fetch "Used By" count on mount (fallback if not in info)
     useEffect(() => {
-        if (info.usedByCount !== undefined) {
-            setUsedByCount(info.usedByCount);
-        } else {
+        if (info.usedByCount === undefined) {
             fetchReverseDependencyCount(info.groupId, info.artifactId)
                 .then(setUsedByCount)
                 .catch(() => setUsedByCount(0));
@@ -79,6 +77,8 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
     // Fetch "Used By" items when expanded
     useEffect(() => {
         if (!usedByExpanded) return;
+
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setUsedByLoading(true);
         fetchReverseDependencies(info.groupId, info.artifactId, usedByPage, 10)
             .then((result) => {
@@ -296,8 +296,8 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                                         <button
                                             onClick={() => setUseLatestForSnippet(false)}
                                             className={`px-2.5 py-1 rounded-md font-medium transition-colors ${!useLatestForSnippet
-                                                    ? 'bg-green-900/60 text-green-300 border border-green-800/50'
-                                                    : 'text-gray-500 hover:text-gray-300'
+                                                ? 'bg-green-900/60 text-green-300 border border-green-800/50'
+                                                : 'text-gray-500 hover:text-gray-300'
                                                 }`}
                                         >
                                             ✓ Recommended
@@ -305,8 +305,8 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                                         <button
                                             onClick={() => setUseLatestForSnippet(true)}
                                             className={`px-2.5 py-1 rounded-md font-medium transition-colors ${useLatestForSnippet
-                                                    ? 'bg-blue-900/60 text-blue-300 border border-blue-800/50'
-                                                    : 'text-gray-500 hover:text-gray-300'
+                                                ? 'bg-blue-900/60 text-blue-300 border border-blue-800/50'
+                                                : 'text-gray-500 hover:text-gray-300'
                                                 }`}
                                         >
                                             Latest
@@ -476,7 +476,7 @@ export default function ArtifactPageClient({ info, detail, selectedVersion }: Pr
                         {/* Badges Section */}
                         <section className="rounded-xl border border-gray-800 bg-gray-950/50 overflow-hidden">
                             <div className="px-6 py-4 border-b border-gray-800 flex items-center gap-2">
-                                <Image size={18} className="text-amber-400" />
+                                <ImageIcon size={18} className="text-amber-400" />
                                 <h2 className="font-bold text-lg">Badges</h2>
                             </div>
                             <div className="p-6 space-y-8">

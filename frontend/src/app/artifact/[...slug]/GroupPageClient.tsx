@@ -6,14 +6,13 @@ import {
     Package,
     Tag,
     Clock,
-    FileCode,
     ChevronLeft,
     ChevronRight,
     ExternalLink,
     ArrowRight,
     Layers,
 } from 'lucide-react';
-import { type GroupArtifactItem, formatDate, timeAgo } from '@/lib/artifact-api';
+import { type GroupArtifactItem, timeAgo } from '@/lib/artifact-api';
 
 interface Props {
     groupId: string;

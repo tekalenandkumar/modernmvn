@@ -101,45 +101,48 @@ export default async function ArtifactPage({ params }: PageProps) {
     // ── Group Page ──────────────────────────────────────────────
     if (parsed.kind === 'group') {
         const { groupId } = parsed;
+        let data = null;
         try {
-            const data = await fetchGroupArtifacts(groupId, 0, 20);
-            return (
-                <GroupPageClient
-                    groupId={groupId}
-                    totalResults={data.totalResults}
-                    initialItems={data.items}
-                    initialPage={0}
-                    pageSize={20}
-                />
-            );
+            data = await fetchGroupArtifacts(groupId, 0, 20);
         } catch {
             notFound();
         }
+
+        return (
+            <GroupPageClient
+                groupId={groupId}
+                totalResults={data.totalResults}
+                initialItems={data.items}
+                initialPage={0}
+                pageSize={20}
+            />
+        );
     }
 
     // ── Artifact / Version Page ─────────────────────────────────
     const { groupId, artifactId, version } = parsed;
+    let info = null;
     try {
-        const info = await fetchArtifactInfo(groupId, artifactId);
-
-        let detail = null;
-        const targetVersion = version || info.latestReleaseVersion || info.latestVersion;
-        if (targetVersion) {
-            try {
-                detail = await fetchArtifactDetail(groupId, artifactId, targetVersion);
-            } catch {
-                // detail fetch may fail for some artifacts
-            }
-        }
-
-        return (
-            <ArtifactPageClient
-                info={info}
-                detail={detail}
-                selectedVersion={version || null}
-            />
-        );
+        info = await fetchArtifactInfo(groupId, artifactId);
     } catch {
         notFound();
     }
+
+    let detail = null;
+    const targetVersion = version || info.latestReleaseVersion || info.latestVersion;
+    if (targetVersion) {
+        try {
+            detail = await fetchArtifactDetail(groupId, artifactId, targetVersion);
+        } catch {
+            // detail fetch may fail for some artifacts
+        }
+    }
+
+    return (
+        <ArtifactPageClient
+            info={info}
+            detail={detail}
+            selectedVersion={version || null}
+        />
+    );
 }

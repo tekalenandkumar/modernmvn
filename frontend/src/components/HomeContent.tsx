@@ -7,7 +7,6 @@ import {
     Clock,
     ArrowRight,
     Package,
-    Tag,
     ExternalLink,
     Shield,
     Users,

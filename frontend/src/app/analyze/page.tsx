@@ -60,7 +60,7 @@ function AnalyzePageContent() {
 
     // ─── Security & Session ─────────────────────────────────────
     const [showDisclaimer, setShowDisclaimer] = useState(false);
-    const [sessionExpiry, setSessionExpiry] = useState<Date | null>(null);
+    const [, setSessionExpiry] = useState<Date | null>(null);
     const [sessionWarning, setSessionWarning] = useState(false);
 
     // ─── URL sync on mount ──────────────────────────────────────
